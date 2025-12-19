@@ -64,15 +64,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .sort((a, b) => a[0].localeCompare(b[0]));
   }, [students, sectionSearch]);
 
-  // Drilldown list for the main panel
-  const drilledStudents = useMemo(() => {
+  // Roster data logic
+  const displayedStudents = useMemo(() => {
     if (selectedCounsellor) {
       return students.filter(s => (s.counsellor || 'Unassigned') === selectedCounsellor);
     }
     if (selectedSection) {
       return students.filter(s => `${s.year} - ${s.branch} (Sec: ${s.section})` === selectedSection);
     }
-    return [];
+    return students; // Default to all
   }, [students, selectedCounsellor, selectedSection]);
 
   const openStudentDetails = (student: Student) => {
@@ -103,48 +103,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
             <div className="max-h-[85vh] overflow-y-auto custom-scrollbar p-6 pt-12 sm:p-10">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Student Profile View</h4>
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Profile Details</h4>
               <StudentCard student={selectedStudent} />
             </div>
           </div>
         </div>
       )}
 
-      {/* Analytics Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Students</p>
-          <p className="text-3xl font-black text-slate-900 mt-1">{students.length}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Departments</p>
-          <p className="text-3xl font-black text-blue-600 mt-1">{stats.branches}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Counsellors</p>
-          <p className="text-3xl font-black text-indigo-600 mt-1">{stats.counsellors}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Sections</p>
-          <p className="text-3xl font-black text-orange-500 mt-1">{stats.sections}</p>
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Students', value: students.length, color: 'text-slate-900' },
+          { label: 'Departments', value: stats.branches, color: 'text-blue-600' },
+          { label: 'Counsellors', value: stats.counsellors, color: 'text-indigo-600' },
+          { label: 'Total Sections', value: stats.sections, color: 'text-orange-500' },
+        ].map((stat, i) => (
+          <div key={i} className="bg-white p-5 md:p-6 rounded-2xl border border-slate-100 shadow-sm">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+            <p className={`text-2xl md:text-3xl font-black ${stat.color} mt-1`}>{stat.value}</p>
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Breakdowns */}
+        {/* Left Sidebar: Breakdown Filters */}
         <div className="lg:col-span-4 space-y-8">
-          {/* Counsellor Breakdown */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col max-h-[450px]">
-            <h3 className="text-lg font-bold text-slate-800 mb-1">Counsellor Breakdown</h3>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4">Staff Directory</p>
+          {/* 1. Counsellor Breakdown */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col max-h-[420px]">
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Counsellors</h3>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4">Click to Filter Roster</p>
             
             <div className="relative mb-4">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-300">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              </div>
               <input 
                 type="text" 
                 placeholder="Search staff..." 
                 value={counsellorSearch}
                 onChange={(e) => setCounsellorSearch(e.target.value)}
-                className="w-full pl-4 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:border-indigo-300 text-sm font-bold text-slate-700"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:border-indigo-300 text-sm font-bold"
               />
             </div>
 
@@ -155,29 +153,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onClick={() => handleCounsellorClick(name)} 
                   className={`w-full p-3 rounded-xl border text-left transition-all ${selectedCounsellor === name ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-100 hover:border-indigo-300'}`}
                 >
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-bold text-sm truncate pr-2">{name}</h4>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold truncate">{name}</span>
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${selectedCounsellor === name ? 'bg-white/20' : 'bg-slate-200 text-slate-500'}`}>{count}</span>
                   </div>
                 </button>
               )) : (
-                <p className="text-center text-slate-400 text-xs py-4">No counsellors found</p>
+                <p className="text-center text-slate-400 text-xs py-4">No staff matches</p>
               )}
             </div>
           </div>
 
-          {/* Section-wise Count */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col max-h-[450px]">
-            <h3 className="text-lg font-bold text-slate-800 mb-1">Section Roster</h3>
+          {/* 2. Section Roster Breakdown (Positioned below Counsellor Breakdown) */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col max-h-[420px]">
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Section Overview</h3>
             <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4">Class Distribution</p>
             
             <div className="relative mb-4">
+               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-300">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"></path></svg>
+              </div>
               <input 
                 type="text" 
                 placeholder="Filter sections..." 
                 value={sectionSearch}
                 onChange={(e) => setSectionSearch(e.target.value)}
-                className="w-full pl-4 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:border-indigo-300 text-sm font-bold text-slate-700"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:border-indigo-300 text-sm font-bold"
               />
             </div>
 
@@ -188,8 +189,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onClick={() => handleSectionClick(name)} 
                   className={`w-full p-3 rounded-xl border text-left transition-all ${selectedSection === name ? 'bg-orange-500 border-orange-500 text-white shadow-lg' : 'bg-slate-50 border-slate-100 hover:border-orange-300'}`}
                 >
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-bold text-xs truncate pr-2 uppercase">{name}</h4>
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="font-black truncate uppercase">{name}</span>
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${selectedSection === name ? 'bg-white/20' : 'bg-slate-200 text-slate-500'}`}>{count}</span>
                   </div>
                 </button>
@@ -200,73 +201,77 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Detailed Roster List (Replaces Structure Explorer Table) */}
+        {/* Right Panel: Unified Student Roster (The main table/grid area) */}
         <div className="lg:col-span-8 space-y-8">
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col min-h-[600px] max-h-[950px] overflow-hidden">
-            <div className="p-8 border-b border-slate-100 bg-white sticky top-0 z-10 flex justify-between items-center">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col min-h-[600px] max-h-[880px] overflow-hidden">
+            <div className="p-8 border-b border-slate-100 bg-white sticky top-0 z-10 flex flex-wrap gap-4 justify-between items-center">
               <div>
                 <h3 className="text-2xl font-black text-slate-800 tracking-tight">
-                  {selectedCounsellor ? 'Counsellor Roster' : selectedSection ? 'Section Roster' : 'Student Roster'}
+                  {selectedCounsellor ? 'Staff Roster' : selectedSection ? 'Section Roster' : 'Global Student Directory'}
                 </h3>
-                { (selectedCounsellor || selectedSection) ? (
-                  <p className="text-indigo-600 text-xs font-black uppercase tracking-widest mt-1">
-                    Viewing records for: {selectedCounsellor || selectedSection}
-                  </p>
-                ) : (
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">
-                    Select a category from the left to view members
-                  </p>
-                )}
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">
+                  { (selectedCounsellor || selectedSection) ? `Viewing: ${selectedCounsellor || selectedSection}` : 'Displaying All Active Records' }
+                </p>
               </div>
-              { (selectedCounsellor || selectedSection) && (
-                <div className="flex items-center space-x-3">
-                  <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1 rounded-full uppercase">
-                    {drilledStudents.length} Students
-                  </span>
+              <div className="flex items-center space-x-3">
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-black text-slate-900 uppercase">Records Found</span>
+                  <span className="text-xs font-bold text-indigo-500">{displayedStudents.length} Students</span>
+                </div>
+                {(selectedCounsellor || selectedSection) && (
                   <button 
                     onClick={() => { setSelectedCounsellor(null); setSelectedSection(null); }} 
-                    className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+                    className="p-2.5 bg-slate-100 hover:bg-red-50 hover:text-red-500 rounded-xl text-slate-400 transition-all active:scale-95"
+                    title="Clear Filter"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-              { (selectedCounsellor || selectedSection) ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                  {drilledStudents.map(student => (
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar bg-slate-50/20">
+              {displayedStudents.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  {displayedStudents.map(student => (
                     <div 
                       key={student.id} 
                       onClick={() => openStudentDetails(student)} 
-                      className="p-5 rounded-2xl border border-slate-100 bg-white hover:border-indigo-300 transition-all cursor-pointer group shadow-sm hover:shadow-md"
+                      className="p-5 rounded-[1.5rem] border border-slate-100 bg-white hover:border-indigo-400 hover:shadow-xl hover:shadow-indigo-500/10 transition-all cursor-pointer group"
                     >
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h5 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors uppercase text-sm">{student.name}</h5>
-                          <p className="text-[10px] text-slate-400 font-bold tracking-wider">{student.regNo}</p>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1 pr-2">
+                          <h5 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors uppercase text-sm leading-tight line-clamp-1">{student.name}</h5>
+                          <p className="text-[10px] text-slate-400 font-bold tracking-wider mt-1">{student.regNo}</p>
                         </div>
-                        <span className="text-[9px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100">{student.branch}</span>
+                        <span className="text-[9px] font-black bg-slate-900 text-white px-2 py-1 rounded uppercase tracking-wider">{student.branch}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <span className="text-[9px] font-black bg-slate-50 text-slate-500 px-2 py-0.5 rounded border">Year {student.year}</span>
-                        <span className="text-[9px] font-black bg-slate-50 text-slate-500 px-2 py-0.5 rounded border">Sec {student.section}</span>
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex flex-col items-center min-w-[50px]">
+                           <span className="text-[8px] text-slate-400 font-black uppercase">Year</span>
+                           <span className="text-xs font-black text-slate-700">{student.year}</span>
+                        </div>
+                        <div className="bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 flex flex-col items-center min-w-[50px]">
+                           <span className="text-[8px] text-indigo-400 font-black uppercase">Sec</span>
+                           <span className="text-xs font-black text-indigo-600">{student.section}</span>
+                        </div>
+                        {student.counsellor && !selectedCounsellor && (
+                          <div className="flex-1 text-right">
+                             <p className="text-[8px] text-slate-400 font-black uppercase">Counsellor</p>
+                             <p className="text-[10px] font-bold text-slate-600 truncate">{student.counsellor}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center p-10 opacity-60">
-                  <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center text-slate-300 mb-6">
-                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                    </svg>
+                <div className="h-full flex flex-col items-center justify-center text-center p-10 py-24 opacity-60">
+                  <div className="w-20 h-20 bg-slate-100 rounded-[2rem] flex items-center justify-center text-slate-300 mb-8">
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                   </div>
-                  <h4 className="text-xl font-bold text-slate-800">No Roster Selected</h4>
-                  <p className="text-slate-500 text-sm max-w-xs mx-auto mt-2">Click on a Counsellor or Section from the left sidebar to view the list of students.</p>
+                  <h4 className="text-xl font-bold text-slate-800 tracking-tight">No Students to Display</h4>
+                  <p className="text-slate-500 text-sm mt-3 max-w-xs mx-auto">The current filter or search returned no results. Try adjusting your sidebar selections or searching for something else.</p>
                 </div>
               )}
             </div>
