@@ -1,0 +1,5 @@
+{
+  "name": "Student Data Explorer Pro",
+  "description": "A high-performance student management tool that parses Excel data and provides advanced search capabilities with Gemini-powered insights.",
+  "requestFramePermissions": []
+}
