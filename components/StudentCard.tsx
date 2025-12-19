@@ -26,7 +26,7 @@ const StudentCard: React.FC<StudentCardProps> = ({ student }) => {
       <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="space-y-6">
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 block">Contact Information</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 block">Contact Details</label>
             <div className="space-y-3">
               {/* Student Phone (SPHNO) */}
               <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100 group hover:border-indigo-200 transition-all">
@@ -72,7 +72,7 @@ const StudentCard: React.FC<StudentCardProps> = ({ student }) => {
             </div>
           </div>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 block">Mentor Assigned</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 block">Assigned Mentor</label>
             <p className="text-slate-800 font-bold text-sm bg-slate-50 p-2.5 rounded-xl border border-slate-100">{student.counsellor || 'Not Assigned'}</p>
           </div>
         </div>

@@ -15,7 +15,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Selection States
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [counsellorSearch, setCounsellorSearch] = useState('');
-  const [listSearchQuery, setListSearchQuery] = useState('');
+  const [studentListSearch, setStudentListSearch] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   const stats = useMemo(() => {
@@ -49,11 +49,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [students]);
 
-  // Default selection: select the first mentor if none selected
+  // Default selection
   useEffect(() => {
-    const mentorNames = Object.keys(stats.counsellors);
-    if (!filterValue && mentorNames.length > 0) {
-      setFilterValue(mentorNames[0]);
+    const names = Object.keys(stats.counsellors);
+    if (!filterValue && names.length > 0) {
+      setFilterValue(names[0]);
     }
   }, [stats.counsellors, filterValue]);
 
@@ -67,16 +67,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!filterValue) return [];
     let list = students.filter(s => (s.counsellor || 'Unassigned') === filterValue);
     
-    if (listSearchQuery.trim()) {
-      const q = listSearchQuery.toLowerCase();
+    if (studentListSearch.trim()) {
+      const q = studentListSearch.toLowerCase();
       list = list.filter(s => 
         s.name.toLowerCase().includes(q) || 
         s.regNo.toLowerCase().includes(q) ||
-        (s.phone1 && s.phone1.includes(q))
+        s.branch.toLowerCase().includes(q)
       );
     }
     return list;
-  }, [students, filterValue, listSearchQuery]);
+  }, [students, filterValue, studentListSearch]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 animate-in fade-in duration-500 pb-10">
@@ -100,28 +100,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
          </div>
       </div>
 
-      {/* Branch/Year Breakdown Grid */}
+      {/* Dynamic Academic Breakdown */}
       <div className="mb-8 overflow-x-auto pb-4 custom-scrollbar">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2"></span>
+          <span className="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
           Academic Distribution (Dynamic Years)
         </h3>
         <div className="flex space-x-4">
           {Object.entries(stats.branchYearBreakdown).sort().map(([branch, years]) => {
-            // Dynamically get available years for this branch to satisfy 3-year (B.Sc) and 2-year (M.Sc) logic automatically
-            const yearList = Object.keys(years).sort((a, b) => parseInt(a) - parseInt(b));
-            
+            const availableYears = Object.keys(years).sort((a, b) => Number(a) - Number(b));
             return (
-              <div key={branch} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm min-w-[280px] flex-shrink-0">
+              <div key={branch} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm min-w-[280px] flex-shrink-0">
                 <div className="flex justify-between items-center mb-4">
-                  <p className="font-black text-slate-800 uppercase text-[11px] truncate max-w-[160px]">{branch}</p>
-                  <span className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg">Total: {stats.branches[branch]}</span>
+                  <p className="font-black text-slate-800 uppercase text-[11px] truncate max-w-[150px]">{branch}</p>
+                  <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Total: {stats.branches[branch]}</span>
                 </div>
-                <div className={`grid gap-2 grid-cols-${Math.min(yearList.length, 4)}`}>
-                  {yearList.map(y => (
-                    <div key={y} className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100">
+                <div className={`grid gap-2 ${availableYears.length > 3 ? 'grid-cols-4' : availableYears.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  {availableYears.map(y => (
+                    <div key={y} className="bg-slate-50 p-2.5 rounded-2xl text-center border border-slate-100">
                       <p className="text-[9px] font-bold text-slate-400 uppercase">Year {y}</p>
-                      <p className="text-sm font-black text-slate-700">{years[y] || 0}</p>
+                      <p className="text-sm font-black text-slate-800">{years[y] || 0}</p>
                     </div>
                   ))}
                 </div>
@@ -137,7 +135,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="p-6 border-b border-slate-50 shrink-0">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center">
               <span className="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
-              Mentors
+              Mentors List
             </h3>
             <div className="relative">
               <input 
@@ -154,7 +152,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {filteredCounsellors.map(([name, count]) => (
               <button 
                 key={name}
-                onClick={() => { setFilterValue(name); setListSearchQuery(''); }}
+                onClick={() => { setFilterValue(name); setStudentListSearch(''); }}
                 className={`w-full text-left p-5 border-b border-slate-50 flex justify-between items-center transition-all ${filterValue === name ? 'bg-indigo-50 border-r-4 border-r-indigo-500' : 'hover:bg-slate-50'}`}
               >
                 <div className="flex flex-col min-w-0">
@@ -167,26 +165,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Dynamic Student List with SEARCH */}
+        {/* Right Column: Dynamic Student List */}
         <div className="lg:col-span-8 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col min-h-0 overflow-hidden">
-          <div className="p-6 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-            <div>
-              <h3 className="text-xl font-black text-slate-900 truncate max-w-[300px]">
-                {filterValue || 'Select Mentor'}
+          <div className="p-6 border-b border-slate-50 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-xl font-black text-slate-900 truncate">
+                {filterValue || 'Select a Mentor'}
               </h3>
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Student Directory</p>
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Direct Student List</p>
             </div>
             
             {filterValue && (
-              <div className="relative flex-1 max-w-sm">
+              <div className="relative flex-1 max-w-xs">
                 <input 
                   type="text"
-                  placeholder="Search in this mentor's list..."
-                  value={listSearchQuery}
-                  onChange={(e) => setListSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl focus:border-indigo-500 outline-none text-xs font-bold transition-all"
+                  placeholder="Search in this list..."
+                  value={studentListSearch}
+                  onChange={(e) => setStudentListSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none text-xs font-bold transition-all"
                 />
-                <svg className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <svg className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
               </div>
             )}
           </div>
@@ -212,7 +210,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {displayedStudents.length === 0 && (
               <div className="col-span-full flex flex-col items-center justify-center py-20 text-slate-300">
                  <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                 <p className="font-bold uppercase tracking-widest text-xs text-center">No students found{listSearchQuery ? ` matching "${listSearchQuery}"` : ''}</p>
+                 <p className="font-bold uppercase tracking-widest text-xs">No records available for this selection</p>
               </div>
             )}
           </div>

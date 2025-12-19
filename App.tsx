@@ -68,12 +68,12 @@ const App: React.FC = () => {
     return students.filter(s => 
       s.name.toLowerCase().includes(lowerQuery) || 
       s.regNo.toLowerCase().includes(lowerQuery) ||
-      s.phone1.includes(lowerQuery) ||
-      s.phone2.includes(lowerQuery) ||
-      s.branch.toLowerCase().includes(lowerQuery) ||
-      s.section.toLowerCase().includes(lowerQuery) ||
-      s.year.toLowerCase().includes(lowerQuery) ||
-      s.counsellor.toLowerCase().includes(lowerQuery)
+      (s.phone1 && s.phone1.includes(lowerQuery)) ||
+      (s.phone2 && s.phone2.includes(lowerQuery)) ||
+      (s.branch && s.branch.toLowerCase().includes(lowerQuery)) ||
+      (s.section && s.section.toLowerCase().includes(lowerQuery)) ||
+      (s.year && s.year.toLowerCase().includes(lowerQuery)) ||
+      (s.counsellor && s.counsellor.toLowerCase().includes(lowerQuery))
     );
   }, [students, searchQuery]);
 
@@ -221,7 +221,7 @@ const App: React.FC = () => {
                           <span>Setup Google Link</span>
                         </button>
                         <button onClick={handleSync} disabled={syncing} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
-                          <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                          <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15"></path></svg>
                           <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
                         </button>
                         <button onClick={() => {setShowUploadModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
@@ -258,7 +258,7 @@ const App: React.FC = () => {
         ) : (
           <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
             <div className="text-center mb-12">
-              <h2 className="text-3xl font-black text-slate-900 mb-8">Directory Search</h2>
+              <h2 className="text-3xl font-black text-slate-900 mb-8">Student Search</h2>
               <div className="relative">
                 <input
                   type="text"
