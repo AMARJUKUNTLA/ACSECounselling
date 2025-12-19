@@ -1,85 +1,67 @@
 
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, setDoc, doc, writeBatch, deleteDoc, query } from 'firebase/firestore';
 import { Student } from '../types';
 
-const CONFIG_KEY = 'edubase_firebase_config';
+const SHEET_URL_KEY = 'edubase_google_sheet_url';
+const PWD_KEY = 'student_explorer_pwd';
 
-export interface FirebaseConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  storageBucket: string;
-  messagingSenderId: string;
-  appId: string;
-}
-
-let app: FirebaseApp | null = null;
-let db: any = null;
-
-export const isCloudConfigured = (): boolean => {
-  return !!localStorage.getItem(CONFIG_KEY);
+export const saveSheetUrl = (url: string) => {
+  localStorage.setItem(SHEET_URL_KEY, url);
 };
 
-export const initCloud = () => {
-  const configStr = localStorage.getItem(CONFIG_KEY);
-  if (!configStr) return null;
+export const getSheetUrl = () => {
+  return localStorage.getItem(SHEET_URL_KEY) || '';
+};
 
+export const updateAdminPassword = (newPwd: string) => {
+  localStorage.setItem(PWD_KEY, newPwd);
+};
+
+export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => {
   try {
-    const config = JSON.parse(configStr);
-    if (getApps().length === 0) {
-      app = initializeApp(config);
-    } else {
-      app = getApps()[0];
-    }
-    db = getFirestore(app);
-    return true;
-  } catch (e) {
-    console.error("Cloud Init Failed", e);
-    return false;
-  }
-};
-
-export const saveCloudConfig = (config: FirebaseConfig) => {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  return initCloud();
-};
-
-export const getStudentsFromCloud = async (): Promise<Student[]> => {
-  if (!db) return [];
-  try {
-    const querySnapshot = await getDocs(collection(db, "students"));
-    return querySnapshot.docs.map(doc => doc.data() as Student);
-  } catch (e) {
-    console.error("Error fetching cloud data", e);
-    return [];
-  }
-};
-
-export const saveStudentsToCloud = async (students: Student[]) => {
-  if (!db) throw new Error("Cloud not configured");
-  
-  // Using batches for efficiency (Firestore limit is 500 per batch)
-  const batchSize = 400;
-  for (let i = 0; i < students.length; i += batchSize) {
-    const batch = writeBatch(db);
-    const chunk = students.slice(i, i + batchSize);
+    const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!matches || !matches[1]) throw new Error("Invalid Google Sheets URL");
     
-    chunk.forEach(student => {
-      const studentRef = doc(db, "students", student.id);
-      batch.set(studentRef, student);
+    const spreadsheetId = matches[1];
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+    
+    const response = await fetch(csvUrl);
+    if (!response.ok) throw new Error("Could not fetch sheet data");
+    const text = await response.text();
+    
+    const lines = text.split('\n');
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
+    
+    return lines.slice(1).filter(line => line.trim()).map((line, index) => {
+      // Basic CSV splitting (doesn't handle commas inside quotes, but fine for simple sheets)
+      const values = line.split(',').map(v => v.trim().replace(/["']/g, ''));
+      const row: any = {};
+      headers.forEach((header, i) => {
+        row[header] = values[i];
+      });
+
+      const getVal = (keys: string[]) => {
+        for (const key of keys) {
+          if (row[key] !== undefined) return row[key];
+        }
+        return '';
+      };
+
+      return {
+        regNo: getVal(['sid', 'reg no', 'registration', 'regno', 'rno']),
+        name: getVal(['sname', 'name', 'student name', 'stuname']),
+        phone1: getVal(['sphno', 'phone1', 'student phone', 'phone 1', 'student mobile']),
+        phone2: getVal(['fphno', 'phone2', 'father phone', 'parent phone', 'phone 2', 'father mobile']),
+        counsellor: getVal(['cname', 'counante', 'counsellor', 'mentor']),
+        year: getVal(['year', 'academic year', 'yr']),
+        section: getVal(['section', 'sec']),
+        branch: getVal(['branch', 'dept', 'department', 'br']),
+        id: `gs-${index}-${Date.now()}`
+      };
     });
-    
-    await batch.commit();
+  } catch (e) {
+    console.error("Google Sheets Fetch Failed", e);
+    throw e;
   }
-};
-
-export const clearCloudDatabase = async () => {
-  if (!db) return;
-  const querySnapshot = await getDocs(collection(db, "students"));
-  const batch = writeBatch(db);
-  querySnapshot.docs.forEach((doc) => {
-    batch.delete(doc.ref);
-  });
-  await batch.commit();
 };

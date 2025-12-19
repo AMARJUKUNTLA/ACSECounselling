@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Student } from "../types";
 
 export const getGeminiInsights = async (students: Student[], query: string): Promise<string> => {
+  // Use named parameter for apiKey as per guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   // Create a compact version of data for Gemini to avoid token limits
@@ -13,6 +14,8 @@ export const getGeminiInsights = async (students: Student[], query: string): Pro
     year: s.year
   }));
 
+  // Always use generateContent for standard text generation tasks.
+  // We remove maxOutputTokens as it's optional and can block output in thinking models if set without a thinkingBudget.
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `
@@ -26,9 +29,9 @@ export const getGeminiInsights = async (students: Student[], query: string): Pro
     `,
     config: {
       temperature: 0.7,
-      maxOutputTokens: 500,
     }
   });
 
+  // Access the text property directly (it's not a method).
   return response.text || "I couldn't generate insights at this time.";
 };
