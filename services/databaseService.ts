@@ -3,25 +3,32 @@ import { Student } from '../types';
 
 const SHEET_URL_KEY = 'edubase_google_sheet_url';
 const PWD_KEY = 'student_explorer_pwd';
-// The specific bin ID for global persistence
-const GLOBAL_BIN_ID = 'ed7d01804f326589312b';
+// Using a fresh, unique bin for global persistence to avoid conflicts
+const GLOBAL_BIN_ID = '484c6c21e6be1219b224';
 const GLOBAL_KV_URL = `https://api.npoint.io/${GLOBAL_BIN_ID}`; 
 
 export const saveSheetUrl = async (url: string) => {
-  // Save locally first
+  // 1. Save locally for immediate persistence
   localStorage.setItem(SHEET_URL_KEY, url);
   
-  // Save globally to the cloud bin using PUT to overwrite
+  // 2. Push to Global Cloud Bin using PUT (Full Overwrite)
   try {
+    const payload = { 
+      active_sheet_url: url,
+      last_updated: new Date().toISOString()
+    };
+    
     const response = await fetch(GLOBAL_KV_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active_sheet_url: url })
+      body: JSON.stringify(payload)
     });
-    if (!response.ok) throw new Error("Failed to update cloud master");
-    console.log("Global cloud master updated successfully.");
+    
+    if (!response.ok) throw new Error(`Cloud sync error: ${response.statusText}`);
+    console.log("Master link successfully pushed to global cloud.");
   } catch (e) {
-    console.error("Global sync failed, saved locally only.", e);
+    console.error("Critical: Global cloud sync failed.", e);
+    // Even if cloud fails, we have it in localStorage for this device
     throw e;
   }
 };
@@ -32,13 +39,22 @@ export const getSheetUrl = () => {
 
 export const fetchGlobalSheetUrl = async (): Promise<string | null> => {
   try {
-    // Adding a cache-buster to ensure we get the latest data
-    const response = await fetch(`${GLOBAL_KV_URL}?t=${Date.now()}`);
-    if (!response.ok) return null;
+    // cache: 'no-store' ensures we don't get a stale version from browser cache
+    const response = await fetch(`${GLOBAL_KV_URL}?nocache=${Date.now()}`, {
+      method: 'GET',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
+    
+    if (!response.ok) {
+      console.warn("Cloud master bin not reachable or not yet created.");
+      return null;
+    }
+    
     const data = await response.json();
+    console.log("Global cloud config fetched:", data);
     return data.active_sheet_url || null;
   } catch (e) {
-    console.error("Failed to fetch global config:", e);
+    console.error("Failed to fetch from global config service:", e);
     return null;
   }
 };
@@ -50,13 +66,13 @@ export const updateAdminPassword = (newPwd: string) => {
 export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => {
   try {
     const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    if (!matches || !matches[1]) throw new Error("Invalid Google Sheets URL");
+    if (!matches || !matches[1]) throw new Error("Invalid Google Sheets URL format");
     
     const spreadsheetId = matches[1];
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&t=${Date.now()}`;
     
     const response = await fetch(csvUrl);
-    if (!response.ok) throw new Error("Could not fetch sheet data");
+    if (!response.ok) throw new Error("Could not fetch CSV from Google Sheets. Ensure the sheet is public.");
     const text = await response.text();
     
     const lines = text.split('\n');
@@ -65,7 +81,8 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
     
     return lines.slice(1).filter(line => line.trim()).map((line, index) => {
-      const values = line.split(',').map(v => v.trim().replace(/["']/g, ''));
+      // Basic CSV splitting (handles quotes/commas simply)
+      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
       const row: any = {};
       headers.forEach((header, i) => {
         row[header] = values[i];
@@ -83,7 +100,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
         name: getVal(['sname', 'name', 'student name', 'stuname']),
         phone1: getVal(['sphno', 'phone1', 'student phone', 'phone 1', 'student mobile']),
         phone2: getVal(['fphno', 'phone2', 'father phone', 'parent phone', 'phone 2', 'father mobile']),
-        counsellor: getVal(['cname', 'counante', 'counsellor', 'mentor']),
+        counsellor: getVal(['cname', 'counante', 'counsellor', 'mentor', 'counsellor name']),
         year: getVal(['year', 'academic year', 'yr']),
         section: getVal(['section', 'sec']),
         branch: getVal(['branch', 'dept', 'department', 'br']),
@@ -91,7 +108,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
       };
     });
   } catch (e) {
-    console.error("Google Sheets Fetch Failed", e);
+    console.error("Google Sheets data retrieval failed:", e);
     throw e;
   }
 };

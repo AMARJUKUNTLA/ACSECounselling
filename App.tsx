@@ -40,28 +40,30 @@ const App: React.FC = () => {
       setLoading(true);
       
       try {
-        console.log("Checking Global Cloud for Master Link...");
-        // 1. Force check Cloud for the active Master Link
-        const activeUrl = await CloudDB.fetchGlobalSheetUrl();
+        console.log("Attempting Global Cloud Sync...");
+        // 1. Force fetch the master link from the cloud bin
+        const cloudMasterUrl = await CloudDB.fetchGlobalSheetUrl();
         
-        const finalUrl = activeUrl || CloudDB.getSheetUrl();
+        // If we found a cloud link, use it. Otherwise fallback to local.
+        const finalUrl = cloudMasterUrl || CloudDB.getSheetUrl();
 
         if (finalUrl) {
-          // Sync local storage and UI input with the cloud value
+          // Sync all local states with the cloud value
           localStorage.setItem('edubase_google_sheet_url', finalUrl);
           setSheetUrlInput(finalUrl);
           
-          console.log("Loading data from Master Link:", finalUrl);
-          const cloudData = await CloudDB.fetchFromGoogleSheets(finalUrl);
-          setStudents(cloudData);
-          localStorage.setItem(DB_KEY, JSON.stringify(cloudData));
+          console.log("Synchronizing with Master Cloud Link:", finalUrl);
+          const data = await CloudDB.fetchFromGoogleSheets(finalUrl);
+          setStudents(data);
+          localStorage.setItem(DB_KEY, JSON.stringify(data));
         } else {
-          // Last resort: check local cache
+          // Check local cache if no URL at all
           const local = localStorage.getItem(DB_KEY);
           if (local) setStudents(JSON.parse(local));
         }
       } catch (e) {
         console.error("Initialization error:", e);
+        // If network is down, try to load from the last known successful local cache
         const local = localStorage.getItem(DB_KEY);
         if (local) setStudents(JSON.parse(local));
       } finally {
@@ -100,20 +102,24 @@ const App: React.FC = () => {
 
   const handleSaveSheetUrl = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!sheetUrlInput.includes('docs.google.com/spreadsheets')) {
+      return alert("Please enter a valid Google Sheets URL.");
+    }
+
     setSyncing(true);
     try {
-      // 1. Push to Cloud using PUT
+      // 1. Update Global Cloud Master
       await CloudDB.saveSheetUrl(sheetUrlInput);
       
-      // 2. Refresh local data
+      // 2. Fetch data from the new link immediately
       const data = await CloudDB.fetchFromGoogleSheets(sheetUrlInput);
       setStudents(data);
       localStorage.setItem(DB_KEY, JSON.stringify(data));
       
-      alert("Master Link updated globally! All devices will reflect this on next load.");
+      alert("MASTER LINK SAVED GLOBALLY! All devices will now sync to this database.");
       setShowCloudSettingsModal(false);
     } catch (e) {
-      alert("Failed to update Master Link. Check your internet and the Google Sheet URL.");
+      alert("Sync failed. Check your internet connection or ensure the Sheet is set to 'Anyone with link can view'.");
     } finally {
       setSyncing(false);
     }
@@ -122,10 +128,13 @@ const App: React.FC = () => {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      // Re-fetch global URL first to see if it changed
-      const activeUrl = await CloudDB.fetchGlobalSheetUrl() || CloudDB.getSheetUrl();
+      // Refresh global URL first
+      const cloudUrl = await CloudDB.fetchGlobalSheetUrl();
+      const activeUrl = cloudUrl || CloudDB.getSheetUrl();
+      
       if (!activeUrl) {
-        alert("No Master Link set. Go to Setup Global Link.");
+        alert("No Master Link is configured.");
+        setShowCloudSettingsModal(true);
         return;
       }
       
@@ -133,9 +142,9 @@ const App: React.FC = () => {
       setStudents(data);
       localStorage.setItem(DB_KEY, JSON.stringify(data));
       setSheetUrlInput(activeUrl);
-      alert(`Global sync successful! Loaded ${data.length} records.`);
+      alert(`Global Master Sync successful! ${data.length} records updated.`);
     } catch (e) {
-      alert("Sync failed. Ensure your sheet is public (Anyone with link can view).");
+      alert("Global Sync failed. Ensure the sheet is accessible.");
     } finally {
       setSyncing(false);
       setIsMenuOpen(false);
@@ -158,14 +167,14 @@ const App: React.FC = () => {
 
   const handlePasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPwd.length < 4) return alert("Min 4 characters required.");
+    if (newPwd.length < 4) return alert("Password must be at least 4 characters.");
     if (newPwd !== confirmPwd) return alert("Passwords do not match.");
     CloudDB.updateAdminPassword(newPwd);
     setNewPwd('');
     setConfirmPwd('');
     setShowPwdChangeModal(false);
     setIsMenuOpen(false);
-    alert("Password updated!");
+    alert("Admin credentials updated locally.");
   };
 
   if (!role) {
@@ -177,7 +186,7 @@ const App: React.FC = () => {
               <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
             </div>
             <h1 className="text-4xl font-black text-slate-900 tracking-tight">EduBase Pro</h1>
-            <p className="text-slate-500 mt-2 text-lg">Student Directory Hub</p>
+            <p className="text-slate-500 mt-2 text-lg">Centralized Student Hub</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <button onClick={() => setRole('user')} className="group bg-white p-10 rounded-[2.5rem] border-2 border-slate-100 text-left hover:border-indigo-500 hover:shadow-2xl transition-all">
@@ -185,14 +194,14 @@ const App: React.FC = () => {
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
               </div>
               <h3 className="text-2xl font-black text-slate-800 mb-2">Student Search</h3>
-              <p className="text-slate-500">Search student and parent records instantly.</p>
+              <p className="text-slate-500">Access shared database instantly.</p>
             </button>
             <button onClick={() => setShowPasswordPrompt(true)} className="group bg-slate-900 p-10 rounded-[2.5rem] text-left hover:shadow-2xl transition-all">
               <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-white mb-6 group-hover:scale-110 transition-transform">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
               </div>
               <h3 className="text-2xl font-black text-white mb-2">Admin Dashboard</h3>
-              <p className="text-slate-400">Manage database & analytics securely.</p>
+              <p className="text-slate-400">Configure global settings & analytics.</p>
             </button>
           </div>
         </div>
@@ -201,10 +210,10 @@ const App: React.FC = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowPasswordPrompt(false)} />
             <form onSubmit={handleAdminLogin} className="relative bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200">
-              <h3 className="text-xl font-black text-slate-800 mb-2 text-center">Admin Access</h3>
-              <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="Password"
-                className={`w-full p-4 rounded-xl border-2 mb-4 focus:outline-none text-center text-lg tracking-widest ${passwordError ? 'border-red-500' : 'border-slate-100'}`} autoFocus />
-              <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg">Enter Dashboard</button>
+              <h3 className="text-xl font-black text-slate-800 mb-2 text-center">Admin Verification</h3>
+              <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="Enter Admin Password"
+                className={`w-full p-4 rounded-xl border-2 mb-4 focus:outline-none text-center text-lg tracking-widest ${passwordError ? 'border-red-500 animate-shake' : 'border-slate-100'}`} autoFocus />
+              <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg transition-all active:scale-95">Enter Admin Space</button>
             </form>
           </div>
         )}
@@ -225,9 +234,9 @@ const App: React.FC = () => {
 
           <div className="flex items-center space-x-6">
             <nav className="flex items-center space-x-1">
-              <button onClick={() => setView('search')} className={`px-4 py-2 rounded-lg text-sm font-bold ${view === 'search' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-800'}`}>Search</button>
+              <button onClick={() => setView('search')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'search' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>Search</button>
               {role === 'admin' && (
-                <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-lg text-sm font-bold ${view === 'admin' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-800'}`}>Admin</button>
+                <button onClick={() => setView('admin')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'admin' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>Admin</button>
               )}
             </nav>
 
@@ -240,33 +249,29 @@ const App: React.FC = () => {
                 <div className="absolute right-0 top-full pt-2 w-56 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden p-2">
                     <div className="px-4 py-3 border-b border-slate-50 mb-1">
-                       <p className="text-[10px] font-black text-slate-400 uppercase">Master Identity</p>
-                       <p className="text-sm font-bold text-slate-800">{role === 'admin' ? 'Administrator' : 'General User'}</p>
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Session</p>
+                       <p className="text-sm font-bold text-slate-800">{role === 'admin' ? 'Cloud Admin' : 'Guest User'}</p>
                     </div>
                     {role === 'admin' && (
                       <>
                         <button onClick={() => {setShowCloudSettingsModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                          <span>Master Sync Setup</span>
+                          <span>Master Link Setup</span>
                         </button>
                         <button onClick={handleSync} disabled={syncing} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15"></path></svg>
-                          <span>{syncing ? 'Connecting...' : 'Global Force Sync'}</span>
+                          <span>{syncing ? 'Connecting...' : 'Global Sync'}</span>
                         </button>
                         <button onClick={() => {setShowUploadModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                          <span>Local Override</span>
-                        </button>
-                        <button onClick={() => {setShowPwdChangeModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                          <span>Update Security</span>
+                          <span>Manual Override</span>
                         </button>
                         <div className="h-px bg-slate-50 my-1"></div>
                       </>
                     )}
                     <button onClick={() => setRole(null)} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                      <span>Logout Session</span>
+                      <span>End Session</span>
                     </button>
                   </div>
                 </div>
@@ -280,7 +285,7 @@ const App: React.FC = () => {
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400 font-bold space-y-4">
              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-             <p className="animate-pulse tracking-widest text-xs uppercase">Connecting to Cloud Master...</p>
+             <p className="animate-pulse tracking-[0.2em] text-[10px] uppercase">Connecting to Cloud Master...</p>
           </div>
         ) : view === 'admin' && role === 'admin' ? (
           <AdminDashboard students={students} isLoading={loading} />
@@ -288,26 +293,27 @@ const App: React.FC = () => {
           <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
             <div className="text-center mb-12">
               <h2 className="text-3xl font-black text-slate-900 mb-8">Student Search</h2>
-              <div className="relative">
+              <div className="relative group">
                 <input
                   type="text"
-                  placeholder="Search by Name, SID, or Parent Mobile..."
-                  className="w-full pl-14 pr-6 py-5 bg-white border-2 border-slate-100 rounded-3xl shadow-xl focus:border-indigo-500 outline-none text-lg transition-all"
+                  placeholder="Student Name, SID, Parent Contact..."
+                  className="w-full pl-14 pr-6 py-5 bg-white border-2 border-slate-100 rounded-3xl shadow-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none text-lg transition-all"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <svg className="w-6 h-6 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <svg className="w-6 h-6 absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
               </div>
+              <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Real-time Global Database Active</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[calc(100vh-320px)] custom-scrollbar pr-2 pb-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[calc(100vh-340px)] custom-scrollbar pr-2 pb-10">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((student) => (
                   <StudentCard key={student.id} student={student} />
                 ))
               ) : searchQuery && (
-                <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-slate-100 text-slate-400 font-bold">
-                  No records found for "{searchQuery}"
+                <div className="col-span-full text-center py-24 bg-white rounded-3xl border border-slate-100 text-slate-400 font-bold shadow-inner">
+                  No matching student records found.
                 </div>
               )}
             </div>
@@ -315,31 +321,36 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Cloud Settings Modal */}
+      {/* Global Cloud Master Sync Modal */}
       {showCloudSettingsModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCloudSettingsModal(false)} />
           <form onSubmit={handleSaveSheetUrl} className="relative w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
              <button type="button" onClick={() => setShowCloudSettingsModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-             <div className="flex items-center space-x-2 mb-2">
-                <h3 className="text-2xl font-black text-slate-900">Master Cloud Link</h3>
-                <span className="bg-indigo-600 text-white text-[10px] px-2 py-1 rounded-lg font-black uppercase tracking-wider">Primary Source</span>
+             <div className="flex items-center space-x-3 mb-2">
+                <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Master Cloud Connection</h3>
              </div>
-             <p className="text-slate-500 mb-8 text-sm leading-relaxed">Saving here updates the master source of truth. All devices globally will automatically synchronize with this link.</p>
-             <div className="space-y-4">
+             <p className="text-slate-500 mb-8 text-sm leading-relaxed">
+               Updating this URL changes the data source for <strong>every device</strong> that opens this app. 
+               The change is permanent and globally reflected instantly.
+             </p>
+             <div className="space-y-6">
                <div className="space-y-2">
-                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Google Sheets URL</label>
+                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Google Sheet Link (Public)</label>
                  <input 
                    type="text" 
                    value={sheetUrlInput} 
                    onChange={(e) => setSheetUrlInput(e.target.value)} 
                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                   className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                   className="w-full p-4 rounded-2xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium transition-colors shadow-inner"
                  />
                </div>
-               <button type="submit" disabled={syncing} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center space-x-2 active:scale-[0.98]">
-                 {syncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
-                 <span>{syncing ? 'Pushing to Master...' : 'Update Master Globally'}</span>
+               <button type="submit" disabled={syncing} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center space-x-3 active:scale-[0.97]">
+                 {syncing && <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>}
+                 <span>{syncing ? 'Pushing Master Config...' : 'Update Globally for All Devices'}</span>
                </button>
              </div>
           </form>
