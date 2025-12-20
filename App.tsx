@@ -34,25 +34,39 @@ const App: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [view, setView] = useState<'search' | 'admin'>('search');
 
-  // Load data on startup
+  // Load data on startup - prioritizing GLOBAL CLOUD FETCH
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const sheetUrl = CloudDB.getSheetUrl();
-      if (sheetUrl) {
-        try {
-          const cloudData = await CloudDB.fetchFromGoogleSheets(sheetUrl);
+      
+      try {
+        // 1. First, check if there's a Global Sheet URL configured in the Cloud
+        let activeUrl = await CloudDB.fetchGlobalSheetUrl();
+        
+        // 2. Fallback to local storage if cloud fetch fails or is empty
+        if (!activeUrl) {
+          activeUrl = CloudDB.getSheetUrl();
+        } else {
+          // If cloud URL exists, update local storage to match
+          localStorage.setItem('edubase_google_sheet_url', activeUrl);
+          setSheetUrlInput(activeUrl);
+        }
+
+        if (activeUrl) {
+          const cloudData = await CloudDB.fetchFromGoogleSheets(activeUrl);
           setStudents(cloudData);
           localStorage.setItem(DB_KEY, JSON.stringify(cloudData));
-        } catch (e) {
+        } else {
           const local = localStorage.getItem(DB_KEY);
           if (local) setStudents(JSON.parse(local));
         }
-      } else {
+      } catch (e) {
+        console.error("Initialization error:", e);
         const local = localStorage.getItem(DB_KEY);
         if (local) setStudents(JSON.parse(local));
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     loadData();
   }, []);
@@ -84,11 +98,23 @@ const App: React.FC = () => {
     setIsMenuOpen(false);
   };
 
-  const handleSaveSheetUrl = (e: React.FormEvent) => {
+  const handleSaveSheetUrl = async (e: React.FormEvent) => {
     e.preventDefault();
-    CloudDB.saveSheetUrl(sheetUrlInput);
-    setShowCloudSettingsModal(false);
-    alert("Google Sheet URL saved!");
+    setSyncing(true);
+    await CloudDB.saveSheetUrl(sheetUrlInput);
+    
+    // Immediately trigger a sync after saving the new URL
+    try {
+      const data = await CloudDB.fetchFromGoogleSheets(sheetUrlInput);
+      setStudents(data);
+      localStorage.setItem(DB_KEY, JSON.stringify(data));
+      alert("Global Database Link Updated Successfully!");
+    } catch (e) {
+      alert("URL saved globally, but failed to fetch data. Check your Sheet permissions.");
+    } finally {
+      setSyncing(false);
+      setShowCloudSettingsModal(false);
+    }
   };
 
   const handleSync = async () => {
@@ -218,7 +244,7 @@ const App: React.FC = () => {
                       <>
                         <button onClick={() => {setShowCloudSettingsModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                          <span>Setup Google Link</span>
+                          <span>Global Cloud Link</span>
                         </button>
                         <button onClick={handleSync} disabled={syncing} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15"></path></svg>
@@ -251,7 +277,7 @@ const App: React.FC = () => {
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400 font-bold space-y-4">
              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-             <p>Syncing Directory...</p>
+             <p className="animate-pulse">Global Cloud Sync in progress...</p>
           </div>
         ) : view === 'admin' && role === 'admin' ? (
           <AdminDashboard students={students} isLoading={loading} />
@@ -262,8 +288,8 @@ const App: React.FC = () => {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Student Name, SID, Phone, or Counsellor..."
-                  className="w-full pl-14 pr-6 py-5 bg-white border-2 border-slate-100 rounded-3xl shadow-xl focus:border-indigo-500 outline-none text-lg"
+                  placeholder="Search by Name, SID, Parent Phone..."
+                  className="w-full pl-14 pr-6 py-5 bg-white border-2 border-slate-100 rounded-3xl shadow-xl focus:border-indigo-500 outline-none text-lg transition-all"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -292,8 +318,11 @@ const App: React.FC = () => {
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCloudSettingsModal(false)} />
           <form onSubmit={handleSaveSheetUrl} className="relative w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
              <button type="button" onClick={() => setShowCloudSettingsModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-             <h3 className="text-2xl font-black text-slate-900 mb-2">Google Sheet Link</h3>
-             <p className="text-slate-500 mb-8 text-sm">Paste the 'Share' link of your Google Sheet. Ensure it is set to "Anyone with the link can view".</p>
+             <div className="flex items-center space-x-2 mb-2">
+                <h3 className="text-2xl font-black text-slate-900">Global Database Link</h3>
+                <span className="bg-emerald-100 text-emerald-600 text-[10px] px-2 py-1 rounded-lg font-black uppercase tracking-wider">Cloud Persistent</span>
+             </div>
+             <p className="text-slate-500 mb-8 text-sm leading-relaxed">Saving here updates the database for <strong>all users and all devices</strong> globally. Ensure the sheet is public (Anyone with link can view).</p>
              <div className="space-y-4">
                <input 
                  type="text" 
@@ -302,12 +331,15 @@ const App: React.FC = () => {
                  placeholder="https://docs.google.com/spreadsheets/d/..."
                  className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
                />
-               <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg">Save & Close</button>
+               <button type="submit" disabled={syncing} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center space-x-2">
+                 {syncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+                 <span>{syncing ? 'Pushing to Cloud...' : 'Save Globally'}</span>
+               </button>
              </div>
           </form>
         </div>
       )}
-
+      
       {/* Local Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -315,7 +347,7 @@ const App: React.FC = () => {
           <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
              <button onClick={() => setShowUploadModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
              <h3 className="text-2xl font-black text-slate-900 mb-2">Local Excel Upload</h3>
-             <p className="text-slate-500 mb-8 text-sm">Upload an Excel (.xlsx) file to update the local database instantly.</p>
+             <p className="text-slate-500 mb-8 text-sm">Upload an Excel (.xlsx) file to update your local view. This does not update the cloud.</p>
              <FileUpload onDataLoaded={handleDataLoaded} isLoading={loading} />
           </div>
         </div>

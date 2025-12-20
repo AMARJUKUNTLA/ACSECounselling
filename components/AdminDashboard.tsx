@@ -60,7 +60,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const filteredCounsellors = useMemo(() => {
     return Object.entries(stats.counsellors)
       .filter(([name]) => name.toLowerCase().includes(counsellorSearch.toLowerCase()))
-      .sort((a, b) => b[1] - a[1]);
+      // Fix: Explicitly cast count values to number to resolve TS type mismatch in arithmetic operation
+      .sort((a, b) => (b[1] as number) - (a[1] as number));
   }, [stats.counsellors, counsellorSearch]);
 
   const displayedStudents = useMemo(() => {
