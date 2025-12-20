@@ -40,23 +40,23 @@ const App: React.FC = () => {
       setLoading(true);
       
       try {
-        // 1. First, check if there's a Global Sheet URL configured in the Cloud
-        let activeUrl = await CloudDB.fetchGlobalSheetUrl();
+        console.log("Checking Global Cloud for Master Link...");
+        // 1. Force check Cloud for the active Master Link
+        const activeUrl = await CloudDB.fetchGlobalSheetUrl();
         
-        // 2. Fallback to local storage if cloud fetch fails or is empty
-        if (!activeUrl) {
-          activeUrl = CloudDB.getSheetUrl();
-        } else {
-          // If cloud URL exists, update local storage to match
-          localStorage.setItem('edubase_google_sheet_url', activeUrl);
-          setSheetUrlInput(activeUrl);
-        }
+        const finalUrl = activeUrl || CloudDB.getSheetUrl();
 
-        if (activeUrl) {
-          const cloudData = await CloudDB.fetchFromGoogleSheets(activeUrl);
+        if (finalUrl) {
+          // Sync local storage and UI input with the cloud value
+          localStorage.setItem('edubase_google_sheet_url', finalUrl);
+          setSheetUrlInput(finalUrl);
+          
+          console.log("Loading data from Master Link:", finalUrl);
+          const cloudData = await CloudDB.fetchFromGoogleSheets(finalUrl);
           setStudents(cloudData);
           localStorage.setItem(DB_KEY, JSON.stringify(cloudData));
         } else {
+          // Last resort: check local cache
           const local = localStorage.getItem(DB_KEY);
           if (local) setStudents(JSON.parse(local));
         }
@@ -101,36 +101,39 @@ const App: React.FC = () => {
   const handleSaveSheetUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     setSyncing(true);
-    await CloudDB.saveSheetUrl(sheetUrlInput);
-    
-    // Immediately trigger a sync after saving the new URL
     try {
+      // 1. Push to Cloud using PUT
+      await CloudDB.saveSheetUrl(sheetUrlInput);
+      
+      // 2. Refresh local data
       const data = await CloudDB.fetchFromGoogleSheets(sheetUrlInput);
       setStudents(data);
       localStorage.setItem(DB_KEY, JSON.stringify(data));
-      alert("Global Database Link Updated Successfully!");
+      
+      alert("Master Link updated globally! All devices will reflect this on next load.");
+      setShowCloudSettingsModal(false);
     } catch (e) {
-      alert("URL saved globally, but failed to fetch data. Check your Sheet permissions.");
+      alert("Failed to update Master Link. Check your internet and the Google Sheet URL.");
     } finally {
       setSyncing(false);
-      setShowCloudSettingsModal(false);
     }
   };
 
   const handleSync = async () => {
-    const url = CloudDB.getSheetUrl();
-    if (!url) {
-      alert("Please set the Google Sheet Link first in Cloud Settings.");
-      setShowCloudSettingsModal(true);
-      setIsMenuOpen(false);
-      return;
-    }
     setSyncing(true);
     try {
-      const data = await CloudDB.fetchFromGoogleSheets(url);
+      // Re-fetch global URL first to see if it changed
+      const activeUrl = await CloudDB.fetchGlobalSheetUrl() || CloudDB.getSheetUrl();
+      if (!activeUrl) {
+        alert("No Master Link set. Go to Setup Global Link.");
+        return;
+      }
+      
+      const data = await CloudDB.fetchFromGoogleSheets(activeUrl);
       setStudents(data);
       localStorage.setItem(DB_KEY, JSON.stringify(data));
-      alert(`Sync successful! Loaded ${data.length} records.`);
+      setSheetUrlInput(activeUrl);
+      alert(`Global sync successful! Loaded ${data.length} records.`);
     } catch (e) {
       alert("Sync failed. Ensure your sheet is public (Anyone with link can view).");
     } finally {
@@ -181,7 +184,7 @@ const App: React.FC = () => {
               <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-6 group-hover:scale-110 transition-transform">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
               </div>
-              <h3 className="text-2xl font-black text-slate-800 mb-2">Public Search</h3>
+              <h3 className="text-2xl font-black text-slate-800 mb-2">Student Search</h3>
               <p className="text-slate-500">Search student and parent records instantly.</p>
             </button>
             <button onClick={() => setShowPasswordPrompt(true)} className="group bg-slate-900 p-10 rounded-[2.5rem] text-left hover:shadow-2xl transition-all">
@@ -237,33 +240,33 @@ const App: React.FC = () => {
                 <div className="absolute right-0 top-full pt-2 w-56 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden p-2">
                     <div className="px-4 py-3 border-b border-slate-50 mb-1">
-                       <p className="text-[10px] font-black text-slate-400 uppercase">Current User</p>
+                       <p className="text-[10px] font-black text-slate-400 uppercase">Master Identity</p>
                        <p className="text-sm font-bold text-slate-800">{role === 'admin' ? 'Administrator' : 'General User'}</p>
                     </div>
                     {role === 'admin' && (
                       <>
                         <button onClick={() => {setShowCloudSettingsModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                          <span>Global Cloud Link</span>
+                          <span>Master Sync Setup</span>
                         </button>
                         <button onClick={handleSync} disabled={syncing} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15"></path></svg>
-                          <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
+                          <span>{syncing ? 'Connecting...' : 'Global Force Sync'}</span>
                         </button>
                         <button onClick={() => {setShowUploadModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                          <span>Local Upload</span>
+                          <span>Local Override</span>
                         </button>
                         <button onClick={() => {setShowPwdChangeModal(true); setIsMenuOpen(false);}} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                          <span>Password Change</span>
+                          <span>Update Security</span>
                         </button>
                         <div className="h-px bg-slate-50 my-1"></div>
                       </>
                     )}
                     <button onClick={() => setRole(null)} className="w-full flex items-center space-x-3 px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                      <span>Logout</span>
+                      <span>Logout Session</span>
                     </button>
                   </div>
                 </div>
@@ -277,7 +280,7 @@ const App: React.FC = () => {
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400 font-bold space-y-4">
              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-             <p className="animate-pulse">Global Cloud Sync in progress...</p>
+             <p className="animate-pulse tracking-widest text-xs uppercase">Connecting to Cloud Master...</p>
           </div>
         ) : view === 'admin' && role === 'admin' ? (
           <AdminDashboard students={students} isLoading={loading} />
@@ -288,7 +291,7 @@ const App: React.FC = () => {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search by Name, SID, Parent Phone..."
+                  placeholder="Search by Name, SID, or Parent Mobile..."
                   className="w-full pl-14 pr-6 py-5 bg-white border-2 border-slate-100 rounded-3xl shadow-xl focus:border-indigo-500 outline-none text-lg transition-all"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -319,53 +322,25 @@ const App: React.FC = () => {
           <form onSubmit={handleSaveSheetUrl} className="relative w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
              <button type="button" onClick={() => setShowCloudSettingsModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
              <div className="flex items-center space-x-2 mb-2">
-                <h3 className="text-2xl font-black text-slate-900">Global Database Link</h3>
-                <span className="bg-emerald-100 text-emerald-600 text-[10px] px-2 py-1 rounded-lg font-black uppercase tracking-wider">Cloud Persistent</span>
+                <h3 className="text-2xl font-black text-slate-900">Master Cloud Link</h3>
+                <span className="bg-indigo-600 text-white text-[10px] px-2 py-1 rounded-lg font-black uppercase tracking-wider">Primary Source</span>
              </div>
-             <p className="text-slate-500 mb-8 text-sm leading-relaxed">Saving here updates the database for <strong>all users and all devices</strong> globally. Ensure the sheet is public (Anyone with link can view).</p>
+             <p className="text-slate-500 mb-8 text-sm leading-relaxed">Saving here updates the master source of truth. All devices globally will automatically synchronize with this link.</p>
              <div className="space-y-4">
-               <input 
-                 type="text" 
-                 value={sheetUrlInput} 
-                 onChange={(e) => setSheetUrlInput(e.target.value)} 
-                 placeholder="https://docs.google.com/spreadsheets/d/..."
-                 className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
-               />
-               <button type="submit" disabled={syncing} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center space-x-2">
+               <div className="space-y-2">
+                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Google Sheets URL</label>
+                 <input 
+                   type="text" 
+                   value={sheetUrlInput} 
+                   onChange={(e) => setSheetUrlInput(e.target.value)} 
+                   placeholder="https://docs.google.com/spreadsheets/d/..."
+                   className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                 />
+               </div>
+               <button type="submit" disabled={syncing} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center space-x-2 active:scale-[0.98]">
                  {syncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
-                 <span>{syncing ? 'Pushing to Cloud...' : 'Save Globally'}</span>
+                 <span>{syncing ? 'Pushing to Master...' : 'Update Master Globally'}</span>
                </button>
-             </div>
-          </form>
-        </div>
-      )}
-      
-      {/* Local Upload Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowUploadModal(false)} />
-          <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
-             <button onClick={() => setShowUploadModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-             <h3 className="text-2xl font-black text-slate-900 mb-2">Local Excel Upload</h3>
-             <p className="text-slate-500 mb-8 text-sm">Upload an Excel (.xlsx) file to update your local view. This does not update the cloud.</p>
-             <FileUpload onDataLoaded={handleDataLoaded} isLoading={loading} />
-          </div>
-        </div>
-      )}
-
-      {/* Password Change Modal */}
-      {showPwdChangeModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowPwdChangeModal(false)} />
-          <form onSubmit={handlePasswordChange} className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
-             <button type="button" onClick={() => setShowPwdChangeModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-             <h3 className="text-2xl font-black text-slate-900 mb-6">Change Admin Password</h3>
-             <div className="space-y-4">
-                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="New Password"
-                  className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium" />
-                <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="Confirm Password"
-                  className="w-full p-4 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 font-medium" />
-                <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-lg">Update Credentials</button>
              </div>
           </form>
         </div>

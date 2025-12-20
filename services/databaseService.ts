@@ -3,22 +3,26 @@ import { Student } from '../types';
 
 const SHEET_URL_KEY = 'edubase_google_sheet_url';
 const PWD_KEY = 'student_explorer_pwd';
-// Public KV store bucket for global settings (reasonably unique to avoid collisions)
-const GLOBAL_KV_URL = 'https://api.npoint.io/ed7d01804f326589312b'; 
+// The specific bin ID for global persistence
+const GLOBAL_BIN_ID = 'ed7d01804f326589312b';
+const GLOBAL_KV_URL = `https://api.npoint.io/${GLOBAL_BIN_ID}`; 
 
 export const saveSheetUrl = async (url: string) => {
   // Save locally first
   localStorage.setItem(SHEET_URL_KEY, url);
   
-  // Save globally to the cloud bin
+  // Save globally to the cloud bin using PUT to overwrite
   try {
-    await fetch('https://api.npoint.io/ed7d01804f326589312b', {
-      method: 'POST',
+    const response = await fetch(GLOBAL_KV_URL, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active_sheet_url: url })
     });
+    if (!response.ok) throw new Error("Failed to update cloud master");
+    console.log("Global cloud master updated successfully.");
   } catch (e) {
-    console.warn("Global sync failed, saved locally only.", e);
+    console.error("Global sync failed, saved locally only.", e);
+    throw e;
   }
 };
 
@@ -28,12 +32,13 @@ export const getSheetUrl = () => {
 
 export const fetchGlobalSheetUrl = async (): Promise<string | null> => {
   try {
-    const response = await fetch('https://api.npoint.io/ed7d01804f326589312b');
+    // Adding a cache-buster to ensure we get the latest data
+    const response = await fetch(`${GLOBAL_KV_URL}?t=${Date.now()}`);
     if (!response.ok) return null;
     const data = await response.json();
     return data.active_sheet_url || null;
   } catch (e) {
-    console.error("Failed to fetch global config", e);
+    console.error("Failed to fetch global config:", e);
     return null;
   }
 };
@@ -60,7 +65,6 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
     
     return lines.slice(1).filter(line => line.trim()).map((line, index) => {
-      // Basic CSV splitting
       const values = line.split(',').map(v => v.trim().replace(/["']/g, ''));
       const row: any = {};
       headers.forEach((header, i) => {
@@ -69,7 +73,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
 
       const getVal = (keys: string[]) => {
         for (const key of keys) {
-          if (row[key] !== undefined) return row[key];
+          if (row[key] !== undefined && row[key] !== '') return row[key];
         }
         return '';
       };
