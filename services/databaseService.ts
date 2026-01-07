@@ -5,44 +5,42 @@ const SHEET_URL_KEY = 'edubase_google_sheet_url';
 const PWD_KEY = 'student_explorer_pwd';
 
 /**
- * Using a fresh unique Bin ID. 
- * npoint.io bins are created on the fly with POST if they don't exist, 
- * but for global consistency, we use a fixed one.
- * If this bin is deleted or restricted, users can still save locally.
+ * Dedicated Public Bin for Master Link Persistence.
+ * Using a fresh ID to ensure compatibility with npoint.io PUT/GET operations.
  */
-const GLOBAL_BIN_ID = '9974251469e38f1262d1'; 
+const GLOBAL_BIN_ID = '93724c6e932454522921'; 
 const GLOBAL_KV_URL = `https://api.npoint.io/${GLOBAL_BIN_ID}`; 
 
 export const saveSheetUrl = async (url: string) => {
-  // 1. Save locally immediately
+  // 1. Immediate local save
   localStorage.setItem(SHEET_URL_KEY, url);
   
-  // 2. Push to Cloud Bin using POST/PUT
-  // We try PUT first to update the specific bin
-  try {
-    const payload = { 
-      active_sheet_url: url,
-      updated_at: new Date().toISOString()
-    };
+  // 2. Broadcast to other tabs on the SAME device immediately
+  const bc = new BroadcastChannel('edubase_sync');
+  bc.postMessage({ type: 'URL_UPDATED', url });
+  bc.close();
 
+  // 3. Attempt Cloud Push
+  const payload = { 
+    active_sheet_url: url,
+    last_updated: new Date().toISOString()
+  };
+
+  try {
+    // Try PUT as primary for npoint.io existing bins
     const response = await fetch(GLOBAL_KV_URL, {
-      method: 'POST', // npoint often prefers POST for creating/overwriting bins
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     
     if (!response.ok) {
-       // Fallback to PUT if POST is restricted on existing bin
-       await fetch(GLOBAL_KV_URL, {
-         method: 'PUT',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify(payload)
-       });
+      throw new Error(`Cloud Sync failed with status: ${response.status}`);
     }
-    console.log("Global cloud sync complete.");
+    console.log("Global cloud master updated.");
   } catch (e) {
-    console.error("Cloud master sync failed. Stored locally.", e);
-    throw e;
+    console.error("Cloud master sync failed. Check internet or CORS.", e);
+    throw e; // Re-throw so the UI can notify the user
   }
 };
 
@@ -52,13 +50,8 @@ export const getSheetUrl = () => {
 
 export const fetchGlobalSheetUrl = async (): Promise<string | null> => {
   try {
-    // Force refresh with cache busting
     const response = await fetch(`${GLOBAL_KV_URL}?nocache=${Date.now()}`, {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
+      cache: 'no-store'
     });
     
     if (!response.ok) return null;
@@ -66,7 +59,7 @@ export const fetchGlobalSheetUrl = async (): Promise<string | null> => {
     const data = await response.json();
     return data.active_sheet_url || null;
   } catch (e) {
-    console.warn("Global config fetch failed, reverting to local link.");
+    console.warn("Global config fetch unreachable.");
     return null;
   }
 };
@@ -84,7 +77,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
     const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&t=${Date.now()}`;
     
     const response = await fetch(csvUrl);
-    if (!response.ok) throw new Error("Sheet access denied. Make sure it is Public (Anyone with link).");
+    if (!response.ok) throw new Error("Google Sheets access denied.");
     const text = await response.text();
     
     const lines = text.split('\n');
@@ -119,7 +112,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
       };
     });
   } catch (e) {
-    console.error("GS fetch error:", e);
+    console.error("Data source error:", e);
     throw e;
   }
 };
