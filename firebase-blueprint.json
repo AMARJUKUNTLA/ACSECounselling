@@ -17,6 +17,36 @@
       },
       "required": ["regNo", "name"]
     },
+    "users": {
+      "title": "Authorized Users",
+      "description": "Faculty and Admin accounts for authorized portal access",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "department": { "type": "string" },
+        "phone": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "name", "role"]
+    },
+    "remarks": {
+      "title": "Student Remarks & Counseling Notes",
+      "description": "Faculty counseling notes and behavioral remarks for students",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "studentRegNo": { "type": "string" },
+        "studentName": { "type": "string" },
+        "facultyId": { "type": "string" },
+        "facultyName": { "type": "string" },
+        "category": { "type": "string" },
+        "remark": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["studentId", "facultyId", "remark"]
+    },
     "config": {
       "title": "App Configuration",
       "description": "Global application configuration settings",

@@ -1,14 +1,37 @@
-
 export interface Student {
   regNo: string;
   name: string;
   phone1: string;
   phone2: string;
-  counsellor: string; // Renamed from counante
+  counsellor: string; // Mentor or Counsellor
   year: string;
   section: string;
   branch: string;
-  id: string; // Generated internal ID
+  id: string; // Internal ID
+}
+
+export type UserRole = 'admin' | 'faculty';
+
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  department?: string;
+  createdAt?: string;
+  phone?: string;
+}
+
+export interface StudentRemark {
+  id: string;
+  studentId: string;
+  studentRegNo: string;
+  studentName?: string;
+  facultyId: string;
+  facultyName: string;
+  category: 'counseling' | 'discipline' | 'attendance' | 'academic' | 'general';
+  remark: string;
+  createdAt: string;
 }
 
 export interface SearchFilters {
