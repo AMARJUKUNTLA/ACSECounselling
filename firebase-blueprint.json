@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "students": {
+      "title": "Students",
+      "description": "Student records directory",
+      "type": "object",
+      "properties": {
+        "regNo": { "type": "string" },
+        "name": { "type": "string" },
+        "phone1": { "type": "string" },
+        "phone2": { "type": "string" },
+        "counsellor": { "type": "string" },
+        "year": { "type": "string" },
+        "section": { "type": "string" },
+        "branch": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["regNo", "name"]
+    },
+    "config": {
+      "title": "App Configuration",
+      "description": "Global application configuration settings",
+      "type": "object",
+      "properties": {
+        "sheetUrl": { "type": "string" },
+        "lastUpdated": { "type": "string" },
+        "totalStudents": { "type": "number" }
+      }
+    }
+  }
+}
