@@ -1,6 +1,7 @@
 import React from 'react';
 import { Student, AppUser } from '../types';
 import StudentCounselingRemarks from './StudentCounselingRemarks';
+import { getDepartmentForBranch } from '../services/databaseService';
 
 interface StudentCardProps {
   student: Student;
@@ -90,9 +91,16 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser }) => {
                 <p className="text-slate-900 font-black text-2xl leading-none">{student.section || '-'}</p>
               </div>
             </div>
-            <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
-              <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Program / Branch</label>
-              <p className="text-indigo-900 font-black uppercase text-sm">{student.branch || 'Not Assigned'}</p>
+            <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 flex flex-col justify-between">
+              <div>
+                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Offered Program</label>
+                <p className="text-indigo-900 font-black uppercase text-base">{student.branch || 'Not Assigned'}</p>
+              </div>
+              <div className="mt-2 pt-2 border-t border-indigo-100/60">
+                <span className="text-[10px] font-bold text-indigo-600/80">
+                  {getDepartmentForBranch(student.branch)}
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Student, AppUser } from '../types';
 import StudentCard from './StudentCard';
-import { normalizeBranchOrDepartment } from '../services/databaseService';
+import { normalizeProgramBranch, getDepartmentForBranch } from '../services/databaseService';
 
 interface FacultyDashboardProps {
   students: Student[];
@@ -19,12 +19,12 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
-  // Extract unique branches and years
+  // Extract unique programs/branches
   const branches = useMemo(() => {
     const set = new Set<string>();
     students.forEach(s => {
       if (s.branch) {
-        set.add(normalizeBranchOrDepartment(s.branch).toUpperCase());
+        set.add(normalizeProgramBranch(s.branch).toUpperCase());
       }
     });
     return Array.from(set).sort();
@@ -45,11 +45,14 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
       const matchesQuery = !q || 
         s.name.toLowerCase().includes(q) || 
         s.regNo.toLowerCase().includes(q) ||
-        s.counsellor.toLowerCase().includes(q) ||
-        s.phone1.includes(q) ||
-        s.phone2.includes(q);
+        (s.counsellor && s.counsellor.toLowerCase().includes(q)) ||
+        (s.phone1 && s.phone1.includes(q)) ||
+        (s.phone2 && s.phone2.includes(q)) ||
+        (s.branch && s.branch.toLowerCase().includes(q)) ||
+        (s.section && s.section.toLowerCase().includes(q)) ||
+        (s.year && s.year.toLowerCase().includes(q));
 
-      const normBranch = normalizeBranchOrDepartment(s.branch || '').toUpperCase();
+      const normBranch = normalizeProgramBranch(s.branch || '').toUpperCase();
       const matchesBranch = selectedBranch === 'ALL' || normBranch === selectedBranch;
       const matchesYear = selectedYear === 'ALL' || s.year === selectedYear;
 
@@ -89,12 +92,21 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by student name, SID / Reg No, or assigned mentor..."
-              className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:border-indigo-500 outline-none text-sm font-bold text-slate-800 transition-all"
+              placeholder="Search by student name, Reg No, phone, mentor, program..."
+              className="w-full pl-11 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:border-indigo-500 outline-none text-sm font-bold text-slate-800 transition-all"
             />
             <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                title="Clear search"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            )}
           </div>
 
           {/* Branch Filter */}

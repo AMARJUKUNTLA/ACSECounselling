@@ -20,6 +20,7 @@ export interface AppUser {
   department?: string;
   createdAt?: string;
   phone?: string;
+  password?: string;
 }
 
 export interface StudentRemark {

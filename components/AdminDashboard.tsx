@@ -5,6 +5,7 @@ import FileUpload from './FileUpload';
 import { 
   subscribeToUsers, 
   addUserToFirebase, 
+  updateUserInFirebase,
   deleteUserFromFirebase,
   syncCounsellorAccountsFromStudents 
 } from '../services/databaseService';
@@ -35,7 +36,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteStudent
 }) => {
   // Tab view inside Admin
-  const [adminTab, setAdminTab] = useState<'students' | 'faculty'>('students');
+  const [adminTab, setAdminTab] = useState<'students' | 'search' | 'faculty'>('students');
+
+  // Search Engine Specific State
+  const [engineQuery, setEngineQuery] = useState('');
+  const [engineBranchFilter, setEngineBranchFilter] = useState('ALL');
+  const [engineYearFilter, setEngineYearFilter] = useState('ALL');
+  const [engineCategory, setEngineCategory] = useState<'all' | 'name' | 'regNo' | 'phone' | 'counsellor' | 'branch'>('all');
 
   // Selection & UI States
   const [filterValue, setFilterValue] = useState<string | null>(null);
@@ -74,9 +81,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     email: '',
     role: 'faculty' as 'faculty' | 'admin',
-    department: 'Computer Science',
+    department: 'Dept. of CSBS & IoT',
     phone: '',
     password: 'faculty123'
+  });
+
+  // Edit User / Faculty / Counsellor state
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  const [userEditFormData, setUserEditFormData] = useState({
+    name: '',
+    email: '',
+    role: 'faculty' as 'faculty' | 'admin',
+    department: '',
+    phone: '',
+    password: ''
   });
 
   useEffect(() => {
@@ -121,11 +139,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [students]);
 
   useEffect(() => {
-    const names = Object.keys(stats.counsellors);
-    if (!filterValue && names.length > 0) {
-      setFilterValue(names[0]);
+    if (!filterValue) {
+      setFilterValue('ALL');
     }
-  }, [stats.counsellors, filterValue]);
+  }, [filterValue]);
 
   const filteredCounsellors = useMemo(() => {
     return Object.entries(stats.counsellors)
@@ -134,19 +151,97 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [stats.counsellors, counsellorSearch]);
 
   const displayedStudents = useMemo(() => {
-    if (!filterValue) return [];
-    let list = students.filter(s => (s.counsellor || 'Unassigned') === filterValue);
+    let list = students;
+    if (filterValue && filterValue !== 'ALL') {
+      list = list.filter(s => (s.counsellor || 'Unassigned').trim().toLowerCase() === filterValue.trim().toLowerCase());
+    }
     
     if (studentListSearch.trim()) {
-      const q = studentListSearch.toLowerCase();
-      list = list.filter(s => 
+      const q = studentListSearch.toLowerCase().trim();
+      const filtered = list.filter(s => 
         s.name.toLowerCase().includes(q) || 
         s.regNo.toLowerCase().includes(q) ||
-        s.branch.toLowerCase().includes(q)
+        (s.branch && s.branch.toLowerCase().includes(q)) ||
+        (s.counsellor && s.counsellor.toLowerCase().includes(q)) ||
+        (s.phone1 && s.phone1.includes(q)) ||
+        (s.phone2 && s.phone2.includes(q)) ||
+        (s.section && s.section.toLowerCase().includes(q)) ||
+        (s.year && s.year.toLowerCase().includes(q))
       );
+
+      // Fallback search across ALL students if specific mentor filter yielded 0 search results
+      if (filtered.length === 0 && filterValue && filterValue !== 'ALL') {
+        return students.filter(s => 
+          s.name.toLowerCase().includes(q) || 
+          s.regNo.toLowerCase().includes(q) ||
+          (s.branch && s.branch.toLowerCase().includes(q)) ||
+          (s.counsellor && s.counsellor.toLowerCase().includes(q)) ||
+          (s.phone1 && s.phone1.includes(q)) ||
+          (s.phone2 && s.phone2.includes(q)) ||
+          (s.section && s.section.toLowerCase().includes(q)) ||
+          (s.year && s.year.toLowerCase().includes(q))
+        );
+      }
+
+      return filtered;
     }
     return list;
   }, [students, filterValue, studentListSearch]);
+
+  // Google-Style Search Engine Filter Logic
+  const searchEngineResults = useMemo(() => {
+    const q = engineQuery.toLowerCase().trim();
+    const tStart = performance.now();
+
+    const results = students.filter(s => {
+      // Branch / Program filter
+      if (engineBranchFilter !== 'ALL') {
+        const normB = (s.branch || '').trim().toUpperCase();
+        if (normB !== engineBranchFilter.toUpperCase()) return false;
+      }
+
+      // Year filter
+      if (engineYearFilter !== 'ALL') {
+        if (s.year !== engineYearFilter) return false;
+      }
+
+      if (!q) return true;
+
+      if (engineCategory === 'name') {
+        return s.name.toLowerCase().includes(q);
+      }
+      if (engineCategory === 'regNo') {
+        return s.regNo.toLowerCase().includes(q);
+      }
+      if (engineCategory === 'phone') {
+        return (s.phone1 && s.phone1.includes(q)) || (s.phone2 && s.phone2.includes(q));
+      }
+      if (engineCategory === 'counsellor') {
+        return s.counsellor && s.counsellor.toLowerCase().includes(q);
+      }
+      if (engineCategory === 'branch') {
+        return s.branch && s.branch.toLowerCase().includes(q);
+      }
+
+      // All fields
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.regNo.toLowerCase().includes(q) ||
+        (s.counsellor && s.counsellor.toLowerCase().includes(q)) ||
+        (s.phone1 && s.phone1.includes(q)) ||
+        (s.phone2 && s.phone2.includes(q)) ||
+        (s.branch && s.branch.toLowerCase().includes(q)) ||
+        (s.section && s.section.toLowerCase().includes(q)) ||
+        (s.year && s.year.toLowerCase().includes(q))
+      );
+    });
+
+    const tEnd = performance.now();
+    return {
+      items: results,
+      timeMs: Math.max(0.1, Math.round((tEnd - tStart) * 10) / 10)
+    };
+  }, [students, engineQuery, engineBranchFilter, engineYearFilter, engineCategory]);
 
   const handleExcelLoaded = async (uploadedData: Student[]) => {
     setIsProcessing(true);
@@ -217,6 +312,79 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       alert(`Failed to add user: ${e.message || 'Error occurred'}`);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const openEditUserModal = (u: AppUser) => {
+    setEditingUser(u);
+    setUserEditFormData({
+      name: u.name || '',
+      email: u.email || '',
+      role: u.role || 'faculty',
+      department: u.department || 'Dept. of CSBS & IoT',
+      phone: u.phone || '',
+      password: u.password || 'faculty123'
+    });
+  };
+
+  const handleSaveUserEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    if (!userEditFormData.name.trim() || !userEditFormData.email.trim()) {
+      alert("Name and Email are required.");
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const oldName = editingUser.name.trim();
+      const newName = userEditFormData.name.trim();
+
+      // Check if user document exists in Firebase
+      const existsInDb = users.some(u => u.id === editingUser.id);
+      if (existsInDb) {
+        await updateUserInFirebase(editingUser.id, userEditFormData);
+      } else {
+        await addUserToFirebase(userEditFormData);
+      }
+
+      // If counsellor's name changed, update counsellor field for all assigned students
+      if (oldName && newName && oldName.toLowerCase() !== newName.toLowerCase()) {
+        const assignedStudents = students.filter(s => (s.counsellor || '').trim().toLowerCase() === oldName.toLowerCase());
+        for (const st of assignedStudents) {
+          await onUpdateStudent(st.id, { counsellor: newName });
+        }
+      }
+
+      alert(`Successfully updated account data for ${newName}!`);
+      setEditingUser(null);
+    } catch (err: any) {
+      alert(`Failed to update account: ${err.message || 'Error occurred'}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleEditCounsellorAccountByName = (cName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const targetUser = users.find(u => 
+      u.name.trim().toLowerCase() === cName.trim().toLowerCase() ||
+      u.email.toLowerCase().includes(cName.toLowerCase().replace(/[^a-z0-9]/g, '_'))
+    );
+
+    if (targetUser) {
+      openEditUserModal(targetUser);
+    } else {
+      const sanitized = cName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const tempUser: AppUser = {
+        id: `usr-${sanitized}`,
+        name: cName,
+        email: `${sanitized}@edubase.edu`,
+        role: 'faculty',
+        department: 'Dept. of CSBS & IoT',
+        phone: '',
+        password: 'faculty123'
+      };
+      openEditUserModal(tempUser);
     }
   };
 
@@ -308,6 +476,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Student Directory ({students.length})
+          </button>
+          <button 
+            onClick={() => setAdminTab('search')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'search' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+          >
+            🔍 Google Search Engine
           </button>
           <button 
             onClick={() => setAdminTab('faculty')}
@@ -437,6 +611,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
               <div className="overflow-y-auto custom-scrollbar flex-1">
+                {/* All Students Option */}
+                <div 
+                  onClick={() => { setFilterValue('ALL'); setStudentListSearch(''); }}
+                  className={`w-full text-left p-4 border-b border-slate-50 flex items-center justify-between transition-all cursor-pointer group ${filterValue === 'ALL' || !filterValue ? 'bg-indigo-50 border-r-4 border-r-indigo-500' : 'hover:bg-slate-50'}`}
+                >
+                  <div className="flex flex-col min-w-0 pr-2">
+                    <span className={`text-sm font-black truncate ${filterValue === 'ALL' || !filterValue ? 'text-indigo-700' : 'text-slate-800'}`}>
+                      All Students
+                    </span>
+                    <span className="text-[9px] font-black text-slate-400 uppercase mt-0.5">Entire Directory</span>
+                  </div>
+                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${filterValue === 'ALL' || !filterValue ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    {students.length}
+                  </span>
+                </div>
+
                 {filteredCounsellors.map(([name, count]) => {
                   const hasAccount = users.some(u => u.name.trim().toLowerCase() === name.trim().toLowerCase());
                   return (
@@ -458,6 +648,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="flex items-center space-x-1.5 shrink-0">
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${filterValue === name ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{count}</span>
                         <button 
+                          onClick={(e) => handleEditCounsellorAccountByName(name, e)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title={`Edit counsellor account data for ${name}`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button 
                           onClick={(e) => handleDeleteCounsellorAccountByName(name, e)}
                           className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                           title={`Delete faculty account for ${name}`}
@@ -478,23 +677,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="p-6 border-b border-slate-50 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-xl font-black text-slate-900 truncate">
-                    {filterValue || 'Select a Mentor'}
+                    {filterValue === 'ALL' || !filterValue ? 'All University Students' : filterValue}
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Direct Student List (Firebase Synced)</p>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                    Showing {displayedStudents.length} student{displayedStudents.length !== 1 ? 's' : ''}
+                  </p>
                 </div>
                 
-                {filterValue && (
-                  <div className="relative flex-1 max-w-xs">
-                    <input 
-                      type="text"
-                      placeholder="Search in this list..."
-                      value={studentListSearch}
-                      onChange={(e) => setStudentListSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none text-xs font-bold transition-all"
-                    />
-                    <svg className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                  </div>
-                )}
+                <div className="relative flex-1 max-w-sm">
+                  <input 
+                    type="text"
+                    placeholder="Search students (Name, Reg No, Phone, Mentor...)"
+                    value={studentListSearch}
+                    onChange={(e) => setStudentListSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none text-xs font-bold transition-all text-slate-800"
+                  />
+                  <svg className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  {studentListSearch && (
+                    <button 
+                      onClick={() => setStudentListSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                      title="Clear search"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                  )}
+                </div>
               </div>
               
               <div className="overflow-y-auto custom-scrollbar p-6 grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 items-start content-start">
@@ -543,6 +751,239 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </>
+      )}
+
+      {/* GOOGLE-STYLE SEPARATE STUDENT SEARCH ENGINE TAB */}
+      {adminTab === 'search' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Google Search Banner Card */}
+          <div className="bg-white p-8 md:p-12 rounded-[2.5rem] border border-slate-100 shadow-sm text-center relative overflow-hidden">
+            {/* Background soft decorative glow */}
+            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-50/60 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Google Engine Brand Title */}
+            <div className="relative inline-flex items-center space-x-1 mb-4 flex-wrap justify-center">
+              <span className="text-4xl md:text-5xl font-black text-blue-600 tracking-tighter">G</span>
+              <span className="text-4xl md:text-5xl font-black text-red-500 tracking-tighter">o</span>
+              <span className="text-4xl md:text-5xl font-black text-amber-500 tracking-tighter">o</span>
+              <span className="text-4xl md:text-5xl font-black text-blue-600 tracking-tighter">g</span>
+              <span className="text-4xl md:text-5xl font-black text-emerald-500 tracking-tighter">l</span>
+              <span className="text-4xl md:text-5xl font-black text-red-500 tracking-tighter mr-2">e</span>
+              <span className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Student Search</span>
+              <span className="ml-2 px-3 py-1 bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-black rounded-full uppercase tracking-widest">Engine Mode</span>
+            </div>
+
+            <p className="text-slate-400 text-xs font-bold max-w-xl mx-auto mb-8">
+              Search any student instantly by Name, Registration No / Hall Ticket, Phone, Parent Mobile, Program, Section, or Mentor.
+            </p>
+
+            {/* Google-like Centered Search Box */}
+            <div className="relative max-w-2xl mx-auto mb-6">
+              <div className="relative flex items-center bg-white border-2 border-slate-200 focus-within:border-blue-500 rounded-full shadow-lg shadow-slate-100 transition-all p-2 pr-4">
+                <div className="pl-4 pr-2 text-slate-400">
+                  <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input 
+                  type="text"
+                  value={engineQuery}
+                  onChange={(e) => setEngineQuery(e.target.value)}
+                  placeholder="Type student name, reg no, mobile number, mentor..."
+                  className="w-full py-3 px-2 bg-transparent text-slate-800 font-bold text-base outline-none placeholder:text-slate-400"
+                  autoFocus
+                />
+                {engineQuery && (
+                  <button 
+                    onClick={() => setEngineQuery('')}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all mr-2"
+                    title="Clear query"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+                <button 
+                  type="button"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-black text-xs transition-all shadow-md active:scale-95 shrink-0"
+                >
+                  Search
+                </button>
+              </div>
+            </div>
+
+            {/* Field Filter Categories */}
+            <div className="flex flex-wrap items-center justify-center gap-2 max-w-2xl mx-auto">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">Search In:</span>
+              {[
+                { id: 'all', label: 'All Fields' },
+                { id: 'name', label: 'Name Only' },
+                { id: 'regNo', label: 'Reg No / HT' },
+                { id: 'phone', label: 'Phone Number' },
+                { id: 'counsellor', label: 'Mentor / Counsellor' },
+                { id: 'branch', label: 'Program' }
+              ].map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setEngineCategory(cat.id as any)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${engineCategory === cat.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Program & Year Filter Chips */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-100 max-w-2xl mx-auto">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">Program:</span>
+              {['ALL', 'CSBS', 'IoT'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setEngineBranchFilter(p)}
+                  className={`px-3 py-1 rounded-full text-xs font-black transition-all ${engineBranchFilter === p ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                >
+                  {p === 'ALL' ? 'All Programs' : p}
+                </button>
+              ))}
+
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 ml-3 mr-1">Year:</span>
+              {['ALL', '1', '2', '3', '4'].map(y => (
+                <button
+                  key={y}
+                  onClick={() => setEngineYearFilter(y)}
+                  className={`px-3 py-1 rounded-full text-xs font-black transition-all ${engineYearFilter === y ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                >
+                  {y === 'ALL' ? 'All Years' : `Year ${y}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Search Results Metadata Bar */}
+          {(engineQuery.trim() || engineBranchFilter !== 'ALL' || engineYearFilter !== 'ALL') && (
+            <div className="px-4 flex items-center justify-between text-xs font-bold text-slate-400">
+              <p>
+                About <span className="text-slate-800 font-black">{searchEngineResults.items.length}</span> results ({searchEngineResults.timeMs} ms)
+              </p>
+              <p className="text-[11px] text-slate-400">Synced directly with Firebase Firestore</p>
+            </div>
+          )}
+
+          {/* Search Results List */}
+          <div className="space-y-4">
+            {searchEngineResults.items.map((student) => (
+              <div 
+                key={student.id}
+                className="bg-white p-6 rounded-[2rem] border border-slate-100 hover:border-blue-300 shadow-sm transition-all hover:shadow-md group"
+              >
+                {/* Google style breadcrumb URL */}
+                <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 mb-1">
+                  <span className="text-emerald-600 font-extrabold">edubase.edu</span>
+                  <span>›</span>
+                  <span>{student.branch || 'CSBS & IoT'}</span>
+                  <span>›</span>
+                  <span className="text-slate-600 font-mono">{student.regNo}</span>
+                </div>
+
+                {/* Title Link */}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 
+                      onClick={() => setSelectedStudent(student)}
+                      className="text-xl font-black text-blue-700 hover:text-blue-800 hover:underline cursor-pointer tracking-tight"
+                    >
+                      {student.name}
+                    </h3>
+                    <p className="text-xs font-bold text-slate-500 mt-0.5">
+                      Reg No: <span className="font-mono text-slate-800">{student.regNo}</span> | Section: <span className="text-slate-800">{student.section || 'A'}</span> | Year: <span className="text-slate-800">{student.year || '1'}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button 
+                      onClick={() => setSelectedStudent(student)}
+                      className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white rounded-xl font-black text-xs transition-all flex items-center space-x-1"
+                    >
+                      <span>Full Card</span>
+                    </button>
+                    <button 
+                      onClick={() => openEditModal(student)}
+                      className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs transition-all"
+                    >
+                      Edit
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(student.id, student.name)}
+                      className="px-2.5 py-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                      title="Delete student record"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Snippet Card */}
+                <div className="mt-3 pt-3 border-t border-slate-50 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-bold text-slate-600">
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Assigned Counsellor</span>
+                    <span className="text-slate-800 font-extrabold">{student.counsellor || 'Unassigned'}</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Offered Program / Dept</span>
+                    <span className="text-indigo-700 font-black">{student.branch || 'CSBS'} (Dept. of CSBS & IoT)</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Contact Numbers</span>
+                    <span className="text-slate-800 font-mono">{student.phone1 || student.phone2 || 'No phone recorded'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Initial Landing or Empty State */}
+            {searchEngineResults.items.length === 0 && (
+              <div className="bg-white p-12 rounded-[2.5rem] border border-slate-100 shadow-sm text-center">
+                {engineQuery.trim() || engineBranchFilter !== 'ALL' || engineYearFilter !== 'ALL' ? (
+                  <div>
+                    <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
+                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <h4 className="text-lg font-black text-slate-800 mb-1">No matching student results found</h4>
+                    <p className="text-xs font-bold text-slate-400 max-w-md mx-auto">
+                      Your query "{engineQuery}" did not match any student record in the database.
+                    </p>
+                    <button 
+                      onClick={() => { setEngineQuery(''); setEngineBranchFilter('ALL'); setEngineYearFilter('ALL'); setEngineCategory('all'); }}
+                      className="mt-4 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-black text-xs hover:bg-blue-100 transition-all"
+                    >
+                      Clear Search Filters
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <h4 className="text-base font-black text-slate-800 mb-2">Google Student Search Engine Ready</h4>
+                    <p className="text-xs font-bold text-slate-400 max-w-lg mx-auto mb-6">
+                      Type any keyword into the search bar above to instantly lookup students by name, registration ID, telephone number, or mentor.
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg mx-auto">
+                      <span className="text-xs font-bold text-slate-400">Quick Try:</span>
+                      {['CSBS', 'IoT', 'Year 1', 'Section A'].map(s => (
+                        <button
+                          key={s}
+                          onClick={() => setEngineQuery(s)}
+                          className="px-3 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-xs font-bold text-slate-600 transition-all"
+                        >
+                          "{s}"
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* FACULTY & AUTHORIZED USERS MANAGEMENT TAB */}
@@ -594,27 +1035,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         )}
                       </div>
 
-                      {u.id !== currentUser.id && (
+                      <div className="flex items-center space-x-1.5">
                         <button 
-                          onClick={() => handleDeleteUser(u.id, u.name)}
-                          className="px-2.5 py-1 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl transition-all flex items-center space-x-1"
-                          title="Delete faculty / counsellor account"
+                          onClick={() => openEditUserModal(u)}
+                          className="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-600 hover:text-white rounded-xl transition-all flex items-center space-x-1"
+                          title="Edit faculty / counsellor account details"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
-                          <span>Delete</span>
+                          <span>Edit</span>
                         </button>
-                      )}
+
+                        {u.id !== currentUser.id && (
+                          <button 
+                            onClick={() => handleDeleteUser(u.id, u.name)}
+                            className="px-2.5 py-1 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl transition-all flex items-center space-x-1"
+                            title="Delete faculty / counsellor account"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <h4 className="text-base font-black text-slate-800">{u.name}</h4>
                     <p className="text-xs font-bold text-slate-400 mt-0.5">{u.email}</p>
-                    <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1.5 rounded-xl inline-block">{u.department || 'Faculty Member'}</p>
+                    {u.phone && <p className="text-xs font-bold text-slate-500 mt-1">📞 {u.phone}</p>}
+                    <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1.5 rounded-xl inline-block">{u.department || 'Dept. of CSBS & IoT'}</p>
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-[10px] font-bold text-slate-400">
                     <span>Login: <code className="text-slate-700 font-mono">{u.name}</code></span>
-                    <span>Pass: <code className="text-indigo-600 font-mono">faculty123</code></span>
+                    <span>Pass: <code className="text-indigo-600 font-mono">{u.password || 'faculty123'}</code></span>
                   </div>
                 </div>
               );
@@ -705,6 +1160,115 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {isProcessing && <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>}
               <span>Register Authorized Account</span>
             </button>
+          </form>
+        </div>
+      )}
+
+      {/* Edit Faculty / Counsellor Account Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingUser(null)} />
+          <form onSubmit={handleSaveUserEdit} className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl p-8 animate-in zoom-in-95 duration-200">
+            <button type="button" onClick={() => setEditingUser(null)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h3 className="text-2xl font-black text-slate-900 mb-1">Edit Faculty / Counsellor Account</h3>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6">Updates account profile and login credentials</p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Counsellor / Faculty Name *</label>
+                <input 
+                  type="text"
+                  value={userEditFormData.name}
+                  onChange={e => setUserEditFormData({...userEditFormData, name: e.target.value})}
+                  placeholder="e.g. Dr. Priya Sundaram"
+                  required
+                  className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                />
+                <p className="text-[10px] text-slate-400 font-bold mt-1">Note: Renaming will automatically sync student records assigned to this mentor.</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Email / Username *</label>
+                <input 
+                  type="text"
+                  value={userEditFormData.email}
+                  onChange={e => setUserEditFormData({...userEditFormData, email: e.target.value})}
+                  placeholder="e.g. priya@edubase.edu"
+                  required
+                  className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Role *</label>
+                  <select 
+                    value={userEditFormData.role}
+                    onChange={(e: any) => setUserEditFormData({...userEditFormData, role: e.target.value})}
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                  >
+                    <option value="faculty">Faculty / Counsellor</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Department</label>
+                  <input 
+                    type="text"
+                    value={userEditFormData.department}
+                    onChange={e => setUserEditFormData({...userEditFormData, department: e.target.value})}
+                    placeholder="e.g. Dept. of CSBS & IoT"
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Mobile / Phone</label>
+                  <input 
+                    type="text"
+                    value={userEditFormData.phone}
+                    onChange={e => setUserEditFormData({...userEditFormData, phone: e.target.value})}
+                    placeholder="e.g. 9876543210"
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Set Password *</label>
+                  <input 
+                    type="text"
+                    value={userEditFormData.password}
+                    onChange={e => setUserEditFormData({...userEditFormData, password: e.target.value})}
+                    placeholder="e.g. faculty123"
+                    required
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <button 
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="w-1/3 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                disabled={isProcessing}
+                className="w-2/3 py-3.5 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center space-x-2"
+              >
+                {isProcessing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+                <span>Save Changes</span>
+              </button>
+            </div>
           </form>
         </div>
       )}

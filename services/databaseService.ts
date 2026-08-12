@@ -26,32 +26,57 @@ const REMARKS_COLLECTION = 'remarks';
 const CONFIG_DOC_PATH = 'config/settings';
 
 /**
- * Normalizes branch and department names.
- * Treats CSBS and IoT as the same department ("CSBS & IoT").
+ * Normalizes program / branch names.
+ * Offered programs: CSBS, IoT, CSE, ECE, EEE, MECH, CIVIL, etc.
  */
-export const normalizeBranchOrDepartment = (deptOrBranch: string): string => {
-  if (!deptOrBranch) return '';
-  const trimmed = deptOrBranch.trim();
+export const normalizeProgramBranch = (branchInput: string): string => {
+  if (!branchInput) return '';
+  const trimmed = branchInput.trim();
   const lower = trimmed.toLowerCase();
-  
+
   if (
     lower === 'csbs' || 
-    lower === 'iot' || 
-    lower === 'csbs & iot' || 
-    lower === 'csbs/iot' || 
-    lower === 'iot/csbs' || 
-    lower === 'csbs, iot' || 
-    lower === 'iot, csbs' ||
-    lower === 'dept of csbs' ||
-    lower === 'dept of iot' ||
-    lower === 'dept. of csbs' ||
-    lower === 'dept. of iot' ||
-    lower === 'computer science and business systems' ||
-    lower === 'internet of things'
+    lower === 'computer science and business systems' || 
+    lower === 'computer science & business systems' ||
+    lower === 'b.tech csbs'
   ) {
+    return 'CSBS';
+  }
+
+  if (
+    lower === 'iot' || 
+    lower === 'internet of things' || 
+    lower === 'internet-of-things' ||
+    lower === 'b.tech iot'
+  ) {
+    return 'IoT';
+  }
+
+  if (lower === 'csbs & iot' || lower === 'csbs/iot' || lower === 'iot/csbs') {
     return 'CSBS & IoT';
   }
-  return trimmed;
+
+  return trimmed.toUpperCase();
+};
+
+/**
+ * Returns the overarching Department name for a given program or branch.
+ * Department name: 'Dept. of CSBS & IoT' for programs CSBS and IoT.
+ */
+export const getDepartmentForBranch = (branchOrDept: string): string => {
+  if (!branchOrDept) return 'General Faculty';
+  const program = normalizeProgramBranch(branchOrDept);
+  const lower = program.toLowerCase();
+
+  if (lower === 'csbs' || lower === 'iot' || lower === 'csbs & iot' || lower.includes('csbs') || lower.includes('iot')) {
+    return 'Dept. of CSBS & IoT';
+  }
+
+  if (lower.startsWith('dept') || lower.startsWith('department')) {
+    return branchOrDept;
+  }
+
+  return `Dept. of ${program}`;
 };
 
 // ==========================================
@@ -75,7 +100,7 @@ export const subscribeToStudents = (
         counsellor: data.counsellor || '',
         year: data.year || '',
         section: data.section || '',
-        branch: normalizeBranchOrDepartment(data.branch || ''),
+        branch: normalizeProgramBranch(data.branch || ''),
       };
     });
     studentsList.sort((a, b) => a.name.localeCompare(b.name));
@@ -117,7 +142,7 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
           counsellor: student.counsellor || '',
           year: student.year || '',
           section: student.section || '',
-          branch: normalizeBranchOrDepartment(student.branch || ''),
+          branch: normalizeProgramBranch(student.branch || ''),
           updatedAt: new Date().toISOString()
         });
       });
@@ -185,6 +210,7 @@ export const subscribeToUsers = (onData: (users: AppUser[]) => void) => {
         role: (data.role as 'admin' | 'faculty') || 'faculty',
         department: data.department || '',
         phone: data.phone || '',
+        password: data.password || 'faculty123',
         createdAt: data.createdAt || ''
       };
     });
@@ -275,8 +301,9 @@ export const syncCounsellorAccountsFromStudents = async (studentsList?: Student[
     for (const cName of Array.from(counsellorNamesSet)) {
       // Find branch/department from student data for this counsellor
       const counsellorStudents = targetStudents.filter(s => (s.counsellor || '').trim().toLowerCase() === cName.toLowerCase());
-      const branches = Array.from(new Set(counsellorStudents.map(s => normalizeBranchOrDepartment(s.branch || '')).filter(Boolean)));
-      const counsellorDept = branches.length > 0 ? (branches.length === 1 ? `Dept. of ${branches[0]}` : branches.join(', ')) : 'Faculty Counsellor / Mentor';
+      const branches = Array.from(new Set(counsellorStudents.map(s => normalizeProgramBranch(s.branch || '')).filter(Boolean)));
+      const depts = Array.from(new Set(branches.map(b => getDepartmentForBranch(b))));
+      const counsellorDept = depts.length > 0 ? (depts.length === 1 ? depts[0] : depts.join(', ')) : 'Dept. of CSBS & IoT';
 
       // Check if user already exists with matching name or email
       const existingUser = existingUsers.find(u => 
@@ -443,6 +470,28 @@ export const addUserToFirebase = async (userData: {
 };
 
 /**
+ * Update an existing user account (Faculty or Admin) in Firebase Cloud.
+ */
+export const updateUserInFirebase = async (
+  userId: string,
+  updatedFields: Partial<{
+    name: string;
+    email: string;
+    role: 'admin' | 'faculty';
+    department: string;
+    phone: string;
+    password: string;
+    counsellorName?: string;
+  }>
+): Promise<void> => {
+  const userDocRef = doc(db, USERS_COLLECTION, userId);
+  await updateDoc(userDocRef, {
+    ...updatedFields,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+/**
  * Delete a user account (Faculty or Admin) from Firebase.
  */
 export const deleteUserFromFirebase = async (userId: string): Promise<void> => {
@@ -598,7 +647,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
         counsellor: getVal(['cname', 'counante', 'counsellor', 'mentor', 'faculty advisor', 'guide']),
         year: getVal(['year', 'academic year', 'yr', 'class']),
         section: getVal(['section', 'sec']),
-        branch: normalizeBranchOrDepartment(getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name'])),
+        branch: normalizeProgramBranch(getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name'])),
         id: `gs-${index}`
       };
     });
