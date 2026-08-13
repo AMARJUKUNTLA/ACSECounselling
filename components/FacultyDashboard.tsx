@@ -28,9 +28,13 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
     const set = new Set<string>();
     students.forEach(s => {
       if (s.branch) {
-        set.add(normalizeProgramBranch(s.branch).toUpperCase());
+        set.add(normalizeProgramBranch(s.branch));
       }
     });
+    if (set.size === 0) {
+      set.add('B.Tech CSBS');
+      set.add('B.Tech CSE(IoT)');
+    }
     return Array.from(set).sort();
   }, [students]);
 
@@ -79,8 +83,8 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
         (s.section && s.section.toLowerCase().includes(q)) ||
         (s.year && s.year.toLowerCase().includes(q));
 
-      const normBranch = normalizeProgramBranch(s.branch || '').toUpperCase();
-      const matchesBranch = selectedBranch === 'ALL' || normBranch === selectedBranch;
+      const normBranch = normalizeProgramBranch(s.branch || '');
+      const matchesBranch = selectedBranch === 'ALL' || normBranch === selectedBranch || normBranch.toUpperCase() === selectedBranch.toUpperCase();
       const matchesYear = selectedYear === 'ALL' || s.year === selectedYear;
 
       return matchesQuery && matchesBranch && matchesYear;
@@ -193,7 +197,7 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
               onChange={(e) => setSelectedBranch(e.target.value)}
               className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xs text-slate-800 outline-none focus:border-indigo-500"
             >
-              <option value="ALL">All Branches / Departments ({branches.length})</option>
+              <option value="ALL">All Offered Programs (B.Tech CSBS & B.Tech CSE(IoT))</option>
               {branches.map(b => (
                 <option key={b} value={b}>{b}</option>
               ))}

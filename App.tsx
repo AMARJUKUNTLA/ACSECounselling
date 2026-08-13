@@ -114,7 +114,7 @@ const App: React.FC = () => {
               </svg>
             </div>
             <div>
-              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-tight">EduBase Pro</h1>
+              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-tight">EduNexus</h1>
               <div className="flex items-center space-x-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">

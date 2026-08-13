@@ -1,6 +1,6 @@
 {
-  "name": "Student Data Explorer Pro",
-  "description": "A high-performance student management tool powered by Firebase Cloud Firestore that syncs Excel and Google Sheets data live across all devices with Gemini insights.",
+  "name": "EduNexus",
+  "description": "A high-performance student management platform for Dept. of CSBS & IoT, powered by Firebase Cloud sync and analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

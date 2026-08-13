@@ -64,7 +64,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
               </svg>
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">EduBase Pro</h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">EduNexus</h1>
             <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Authorized Access Only</p>
           </div>
 
@@ -171,7 +171,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
 
         {/* Footer info */}
         <p className="text-center text-xs text-slate-500 font-medium mt-6">
-          EduBase Pro Directory • Protected by Firebase Cloud Authentication
+          EduNexus Directory • Protected by Firebase Cloud Authentication
         </p>
       </div>
     </div>

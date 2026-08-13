@@ -1,7 +1,7 @@
 import React from 'react';
 import { Student, AppUser } from '../types';
 import StudentCounselingRemarks from './StudentCounselingRemarks';
-import { getDepartmentForBranch } from '../services/databaseService';
+import { getDepartmentForBranch, normalizeProgramBranch } from '../services/databaseService';
 
 interface StudentCardProps {
   student: Student;
@@ -22,7 +22,7 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser, onOpenC
           <p className="text-indigo-100 text-sm font-bold mt-1">SID: {student.regNo || 'N/A'}</p>
         </div>
         <div className="bg-white/20 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/20">
-           <span className="text-white text-[10px] font-black uppercase tracking-wider">{student.branch || 'General'}</span>
+           <span className="text-white text-[10px] font-black uppercase tracking-wider">{normalizeProgramBranch(student.branch || 'B.Tech CSBS')}</span>
         </div>
       </div>
       
@@ -106,7 +106,7 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser, onOpenC
             <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 flex flex-col justify-between">
               <div>
                 <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Offered Program</label>
-                <p className="text-indigo-900 font-black uppercase text-base">{student.branch || 'CSBS'}</p>
+                <p className="text-indigo-900 font-black uppercase text-base">{normalizeProgramBranch(student.branch || 'B.Tech CSBS')}</p>
               </div>
               <div className="mt-2 pt-2 border-t border-indigo-100/60">
                 <span className="text-[10px] font-bold text-indigo-600/80">

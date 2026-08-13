@@ -175,7 +175,7 @@ const RiskAnalysisDashboard: React.FC<RiskAnalysisDashboardProps> = ({
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Class Size</span>
           <span className="text-2xl font-black text-slate-800">{stats.total}</span>
-          <span className="text-[10px] font-bold text-slate-400 block mt-0.5">3rd Year CSBS</span>
+          <span className="text-[10px] font-bold text-slate-400 block mt-0.5">Dept. of CSBS & IoT</span>
         </div>
 
         <div className="bg-red-50/80 p-5 rounded-3xl border border-red-100 shadow-sm">

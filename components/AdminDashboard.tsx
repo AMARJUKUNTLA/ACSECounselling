@@ -6,10 +6,13 @@ import RiskAnalysisDashboard from './RiskAnalysisDashboard';
 import CounsellorStatsModal from './CounsellorStatsModal';
 import { 
   subscribeToUsers, 
+  subscribeToConfig,
   addUserToFirebase, 
   updateUserInFirebase,
   deleteUserFromFirebase,
-  syncCounsellorAccountsFromStudents 
+  syncCounsellorAccountsFromStudents,
+  normalizeProgramBranch,
+  getDepartmentForBranch
 } from '../services/databaseService';
 
 interface AdminDashboardProps {
@@ -77,7 +80,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     counsellor: '',
     year: '1',
     section: 'A',
-    branch: 'CSE',
+    branch: 'B.Tech CSBS',
     cgpa: '',
     attendance: '',
     rGrade: '',
@@ -105,36 +108,62 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     password: ''
   });
 
+  const [appConfig, setAppConfig] = useState<{
+    departmentName: string;
+    offeredCourses: string[];
+  }>({
+    departmentName: 'Dept. of CSBS & IoT',
+    offeredCourses: ['B.Tech CSBS', 'B.Tech CSE(IoT)']
+  });
+
   useEffect(() => {
     if (sheetUrl) setGoogleUrlInput(sheetUrl);
   }, [sheetUrl]);
 
-  // Subscribe to Users
+  // Subscribe to Users & Config
   useEffect(() => {
-    const unsubscribe = subscribeToUsers((data) => {
+    const unsubscribeUsers = subscribeToUsers((data) => {
       setUsers(data);
     });
-    return () => unsubscribe();
+    const unsubscribeConfig = subscribeToConfig((cfg) => {
+      setAppConfig({
+        departmentName: cfg.departmentName || 'Dept. of CSBS & IoT',
+        offeredCourses: cfg.offeredCourses && cfg.offeredCourses.length > 0 ? cfg.offeredCourses : ['B.Tech CSBS', 'B.Tech CSE(IoT)']
+      });
+    });
+    return () => {
+      unsubscribeUsers();
+      unsubscribeConfig();
+    };
   }, []);
 
   const stats = useMemo(() => {
     const counsellors: Record<string, number> = {};
     const branches: Record<string, number> = {};
     const sectionsSet = new Set<string>();
-    const branchYearBreakdown: Record<string, Record<string, number>> = {};
+
+    const csbsYears: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 };
+    const iotYears: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 };
+    let csbsTotal = 0;
+    let iotTotal = 0;
 
     students.forEach(s => {
       const c = s.counsellor || 'Unassigned';
-      const br = (s.branch || 'Unknown').toUpperCase();
-      const yr = s.year || 'N/A';
-      const secKey = `${s.year}-${s.branch}-${s.section}`;
+      const normBranch = normalizeProgramBranch(s.branch || '');
+      const yr = s.year && ['1', '2', '3', '4'].includes(s.year) ? s.year : '1';
+      const secKey = `${s.year}-${normBranch}-${s.section}`;
 
       counsellors[c] = (counsellors[c] || 0) + 1;
-      branches[br] = (branches[br] || 0) + 1;
+      branches[normBranch] = (branches[normBranch] || 0) + 1;
       if (s.section) sectionsSet.add(secKey);
 
-      if (!branchYearBreakdown[br]) branchYearBreakdown[br] = {};
-      branchYearBreakdown[br][yr] = (branchYearBreakdown[br][yr] || 0) + 1;
+      if (normBranch.toLowerCase().includes('iot')) {
+        iotYears[yr] = (iotYears[yr] || 0) + 1;
+        iotTotal++;
+      } else {
+        csbsYears[yr] = (csbsYears[yr] || 0) + 1;
+        csbsTotal++;
+      }
     });
 
     return { 
@@ -142,7 +171,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       branches, 
       total: students.length, 
       totalSections: sectionsSet.size,
-      branchYearBreakdown 
+      csbsYears,
+      iotYears,
+      csbsTotal,
+      iotTotal
     };
   }, [students]);
 
@@ -204,8 +236,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const results = students.filter(s => {
       // Branch / Program filter
       if (engineBranchFilter !== 'ALL') {
-        const normB = (s.branch || '').trim().toUpperCase();
-        if (normB !== engineBranchFilter.toUpperCase()) return false;
+        const normB = normalizeProgramBranch(s.branch || '').toUpperCase();
+        const filterB = normalizeProgramBranch(engineBranchFilter).toUpperCase();
+        if (normB !== filterB && !normB.includes(filterB) && !filterB.includes(normB)) return false;
       }
 
       // Year filter
@@ -296,7 +329,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         alert("Student added to Firebase Cloud!");
         setShowAddModal(false);
       }
-      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
+      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
     } catch (e) {
       alert("Failed to save student record.");
     } finally {
@@ -548,7 +581,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button 
                 onClick={() => {
                   setEditingStudent(null);
-                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
+                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
                   setShowAddModal(true);
                 }}
                 className="px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all shadow-md flex items-center space-x-2 active:scale-95"
@@ -579,32 +612,76 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
              </div>
           </div>
 
-          {/* Academic Breakdown */}
-          <div className="mb-8 overflow-x-auto pb-4 custom-scrollbar">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center">
-              <span className="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
-              Academic Distribution (Department / Years)
-            </h3>
-            <div className="flex space-x-4">
-              {Object.entries(stats.branchYearBreakdown).sort().map(([branch, years]) => {
-                const availableYears = Object.keys(years).sort((a, b) => Number(a) - Number(b));
-                return (
-                  <div key={branch} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm min-w-[280px] flex-shrink-0">
-                    <div className="flex justify-between items-center mb-4">
-                      <p className="font-black text-slate-800 uppercase text-[11px] truncate max-w-[150px]">{branch}</p>
-                      <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Total: {stats.branches[branch]}</span>
-                    </div>
-                    <div className={`grid gap-2 ${availableYears.length > 3 ? 'grid-cols-4' : availableYears.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                      {availableYears.map(y => (
-                        <div key={y} className="bg-slate-50 p-2.5 rounded-2xl text-center border border-slate-100">
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">Year {y}</p>
-                          <p className="text-sm font-black text-slate-800">{years[y] || 0}</p>
-                        </div>
-                      ))}
-                    </div>
+          {/* Academic Breakdown - Dept. of CSBS & IoT */}
+          <div className="mb-8 bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-pulse"></span>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                    Academic Distribution (Department / Years)
+                  </h3>
+                </div>
+                <p className="text-xs font-bold text-slate-500 mt-1">
+                  Department: <span className="text-indigo-600 font-black">{appConfig.departmentName}</span> | Offered Courses: <span className="text-slate-800 font-extrabold">{appConfig.offeredCourses.join(' & ')}</span>
+                </p>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <span className="px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                  {appConfig.departmentName}
+                </span>
+                <span className="px-3 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                  {stats.total} Total Enrolled
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* B.Tech CSBS */}
+              <div className="bg-gradient-to-br from-indigo-50/70 via-indigo-50/30 to-white p-6 rounded-[2rem] border border-indigo-100 shadow-sm relative overflow-hidden">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-indigo-500 tracking-wider bg-indigo-100/70 px-2.5 py-0.5 rounded-md">Offered Course 1</span>
+                    <h4 className="text-lg font-black text-slate-900 tracking-tight mt-1">B.Tech CSBS</h4>
+                    <p className="text-xs font-bold text-slate-500">Computer Science & Business Systems</p>
                   </div>
-                );
-              })}
+                  <div className="text-right bg-white px-4 py-2 rounded-2xl border border-indigo-100 shadow-2xs">
+                    <span className="text-2xl font-black text-indigo-600">{stats.csbsTotal}</span>
+                    <p className="text-[9px] font-black uppercase text-slate-400">Enrolled</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2.5">
+                  {['1', '2', '3', '4'].map(y => (
+                    <div key={`csbs-yr-${y}`} className="bg-white p-3 rounded-2xl text-center border border-indigo-100/80 shadow-2xs">
+                      <p className="text-[10px] font-black text-indigo-400 uppercase">Year {y}</p>
+                      <p className="text-base font-black text-slate-800 mt-0.5">{stats.csbsYears[y] || 0}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* B.Tech CSE(IoT) */}
+              <div className="bg-gradient-to-br from-emerald-50/70 via-emerald-50/30 to-white p-6 rounded-[2rem] border border-emerald-100 shadow-sm relative overflow-hidden">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider bg-emerald-100/70 px-2.5 py-0.5 rounded-md">Offered Course 2</span>
+                    <h4 className="text-lg font-black text-slate-900 tracking-tight mt-1">B.Tech CSE(IoT)</h4>
+                    <p className="text-xs font-bold text-slate-500">CSE - Internet of Things</p>
+                  </div>
+                  <div className="text-right bg-white px-4 py-2 rounded-2xl border border-emerald-100 shadow-2xs">
+                    <span className="text-2xl font-black text-emerald-600">{stats.iotTotal}</span>
+                    <p className="text-[9px] font-black uppercase text-slate-400">Enrolled</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2.5">
+                  {['1', '2', '3', '4'].map(y => (
+                    <div key={`iot-yr-${y}`} className="bg-white p-3 rounded-2xl text-center border border-emerald-100/80 shadow-2xs">
+                      <p className="text-[10px] font-black text-emerald-500 uppercase">Year {y}</p>
+                      <p className="text-base font-black text-slate-800 mt-0.5">{stats.iotYears[y] || 0}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -864,13 +941,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {/* Program & Year Filter Chips */}
             <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-100 max-w-2xl mx-auto">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">Program:</span>
-              {['ALL', 'CSBS', 'IoT'].map(p => (
+              {['ALL', 'B.Tech CSBS', 'B.Tech CSE(IoT)'].map(p => (
                 <button
                   key={p}
                   onClick={() => setEngineBranchFilter(p)}
                   className={`px-3 py-1 rounded-full text-xs font-black transition-all ${engineBranchFilter === p ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                 >
-                  {p === 'ALL' ? 'All Programs' : p}
+                  {p === 'ALL' ? 'All Offered Programs' : p}
                 </button>
               ))}
 
@@ -906,7 +983,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 {/* Google style breadcrumb URL */}
                 <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 mb-1">
-                  <span className="text-emerald-600 font-extrabold">edubase.edu</span>
+                  <span className="text-emerald-600 font-extrabold">edunexus.edu</span>
                   <span>›</span>
                   <span>{student.branch || 'CSBS & IoT'}</span>
                   <span>›</span>
@@ -1385,6 +1462,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <h3 className="text-2xl font-black text-slate-900 mb-2">Sync Google Sheets to Firebase</h3>
             <p className="text-slate-500 mb-6 text-sm">Paste a public Google Sheet URL. Data will be fetched and stored directly into Firebase Cloud Firestore for real-time synchronization.</p>
             <div className="space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-xs font-bold text-emerald-900 space-y-1">
+                <p className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Auto-Extraction Active</p>
+                <p>• Department Name: <span className="font-extrabold text-slate-900">{appConfig.departmentName}</span></p>
+                <p>• Offered Courses: <span className="font-extrabold text-slate-900">{appConfig.offeredCourses.join(' & ')}</span></p>
+              </div>
               <input 
                 type="text" 
                 value={googleUrlInput}
@@ -1475,14 +1557,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Branch / Dept</label>
-                <input 
-                  type="text" 
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Offered Program (Dept. of CSBS & IoT)</label>
+                <select 
                   value={formData.branch} 
                   onChange={e => setFormData({...formData, branch: e.target.value})}
-                  placeholder="e.g. CSE"
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
-                />
+                >
+                  <option value="B.Tech CSBS">B.Tech CSBS</option>
+                  <option value="B.Tech CSE(IoT)">B.Tech CSE(IoT)</option>
+                </select>
               </div>
 
               <div>
