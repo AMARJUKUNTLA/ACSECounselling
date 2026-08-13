@@ -6,9 +6,10 @@ import { getDepartmentForBranch } from '../services/databaseService';
 interface StudentCardProps {
   student: Student;
   currentUser?: AppUser;
+  onOpenCounsellorAnalysis?: (counsellorName: string) => void;
 }
 
-const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser }) => {
+const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser, onOpenCounsellorAnalysis }) => {
   const handleCall = (phoneNumber: string) => {
     window.location.href = `tel:${phoneNumber.replace(/\s+/g, '')}`;
   };
@@ -76,7 +77,18 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser }) => {
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 block">Assigned Mentor / Counsellor</label>
-              <p className="text-slate-800 font-bold text-sm bg-slate-50 p-2.5 rounded-xl border border-slate-100">{student.counsellor || 'Not Assigned'}</p>
+              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <p className="text-slate-800 font-bold text-sm">{student.counsellor || 'Not Assigned'}</p>
+                {student.counsellor && onOpenCounsellorAnalysis && (
+                  <button 
+                    onClick={() => onOpenCounsellorAnalysis(student.counsellor)}
+                    className="text-[10px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-600 hover:text-white px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                    title={`View counseling breakdown for ${student.counsellor}`}
+                  >
+                    <span>📊 Breakdown</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -94,15 +106,105 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, currentUser }) => {
             <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 flex flex-col justify-between">
               <div>
                 <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Offered Program</label>
-                <p className="text-indigo-900 font-black uppercase text-base">{student.branch || 'Not Assigned'}</p>
+                <p className="text-indigo-900 font-black uppercase text-base">{student.branch || 'CSBS'}</p>
               </div>
               <div className="mt-2 pt-2 border-t border-indigo-100/60">
                 <span className="text-[10px] font-bold text-indigo-600/80">
-                  {getDepartmentForBranch(student.branch)}
+                  {getDepartmentForBranch(student.branch || 'CSBS')}
                 </span>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Academic Performance & Backlogs Overview (CGPA, Attendance, R-Grade, I-Grade) */}
+        <div className="mt-8 pt-8 border-t border-slate-100 space-y-6">
+          <div className="flex items-center justify-between">
+            <h4 className="text-base font-black text-slate-900 flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 bg-blue-600 rounded-full inline-block"></span>
+              <span>Academic Performance & Backlog Summary</span>
+            </h4>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Sheet Synced</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* CGPA Card */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
+              <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Cumulative CGPA</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-3xl font-black text-slate-900">{student.cgpa || 'N/A'}</span>
+                <span className="text-xs font-bold text-slate-400">/ 10.0</span>
+              </div>
+              <p className="text-[10px] font-bold text-blue-700 mt-2">
+                {parseFloat(student.cgpa || '0') >= 7.5 ? '⭐ First Class with Distinction' : parseFloat(student.cgpa || '0') >= 6.0 ? '✅ First Class Standing' : '⚠️ Needs Academic Support'}
+              </p>
+            </div>
+
+            {/* Attendance % Card */}
+            <div className={`p-5 rounded-2xl border ${parseInt(student.attendance || '100') < 75 ? 'bg-red-50/70 border-red-200' : 'bg-emerald-50/70 border-emerald-200'}`}>
+              <span className={`text-[10px] font-black uppercase tracking-widest block mb-1 ${parseInt(student.attendance || '100') < 75 ? 'text-red-600' : 'text-emerald-700'}`}>Overall Attendance</span>
+              <div className="flex items-baseline space-x-1">
+                <span className={`text-3xl font-black ${parseInt(student.attendance || '100') < 75 ? 'text-red-700' : 'text-emerald-900'}`}>{student.attendance ? `${student.attendance}%` : 'N/A'}</span>
+              </div>
+              <p className={`text-[10px] font-bold mt-2 ${parseInt(student.attendance || '100') < 75 ? 'text-red-700' : 'text-emerald-700'}`}>
+                {parseInt(student.attendance || '100') < 75 ? '🚨 Shortage (< 75% limit)' : '✅ Satisfactory Attendance'}
+              </p>
+            </div>
+
+            {/* R-Grade Card (Attendance Shortage Backlog) */}
+            <div className={`p-5 rounded-2xl border ${student.rGrade && student.rGrade.toLowerCase() !== 'none' && student.rGrade !== '0' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">R-Grade Courses</span>
+                {student.rGradeCount ? (
+                  <span className="px-2 py-0.5 bg-amber-600 text-white rounded-full text-[10px] font-black">{student.rGradeCount} Courses</span>
+                ) : null}
+              </div>
+              <p className="text-sm font-black text-slate-800 truncate" title={student.rGrade || 'None'}>
+                {student.rGrade && student.rGrade.toLowerCase() !== 'none' ? student.rGrade : 'None (No Attendance Backlog)'}
+              </p>
+              <p className="text-[9px] font-bold text-amber-800/80 mt-2 leading-tight">
+                ⚠️ <span className="font-extrabold">R-Grade:</span> Due to attendance shortage. Must re-register for course.
+              </p>
+            </div>
+
+            {/* I-Grade Card (Internal Marks Shortage / Supply Exam) */}
+            <div className={`p-5 rounded-2xl border ${student.iGrade && student.iGrade.toLowerCase() !== 'none' && student.iGrade !== '0' ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-100'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-black text-purple-700 uppercase tracking-widest">I-Grade Courses</span>
+                {student.iGradeCredits ? (
+                  <span className="px-2 py-0.5 bg-purple-600 text-white rounded-full text-[10px] font-black">{student.iGradeCredits} Credits</span>
+                ) : null}
+              </div>
+              <p className="text-sm font-black text-slate-800 truncate" title={student.iGrade || 'None'}>
+                {student.iGrade && student.iGrade.toLowerCase() !== 'none' ? student.iGrade : 'None (No Internal Backlog)'}
+              </p>
+              <p className="text-[9px] font-bold text-purple-800/80 mt-2 leading-tight">
+                📝 <span className="font-extrabold">I-Grade:</span> Incomplete internal marks. Must appear for supply exams.
+              </p>
+            </div>
+          </div>
+
+          {/* Subject-Wise Attendance Breakdown */}
+          {student.subjectAttendance && Object.keys(student.subjectAttendance).length > 0 && (
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Subject-Wise Attendance Breakdown</label>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(student.subjectAttendance).map(([subj, val]) => {
+                  const numVal = parseFloat(val.replace('%', ''));
+                  const isLow = !isNaN(numVal) && numVal < 75;
+                  return (
+                    <div 
+                      key={subj} 
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center space-x-2 ${isLow ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-200 text-slate-700'}`}
+                    >
+                      <span className="font-mono text-slate-900">{subj}:</span>
+                      <span className={`font-black ${isLow ? 'text-red-700' : 'text-emerald-600'}`}>{val}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Counseling & Behavioral Remarks Log */}

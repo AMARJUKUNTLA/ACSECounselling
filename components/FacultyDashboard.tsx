@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Student, AppUser } from '../types';
 import StudentCard from './StudentCard';
-import { normalizeProgramBranch, getDepartmentForBranch } from '../services/databaseService';
+import RiskAnalysisDashboard from './RiskAnalysisDashboard';
+import CounsellorStatsModal from './CounsellorStatsModal';
+import { normalizeProgramBranch } from '../services/databaseService';
 
 interface FacultyDashboardProps {
   students: Student[];
@@ -14,10 +16,12 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
   currentUser,
   isLoading
 }) => {
+  const [facultyTab, setFacultyTab] = useState<'directory' | 'risk'>('directory');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [selectedCounsellorModalName, setSelectedCounsellorModalName] = useState<string | null>(null);
 
   // Extract unique programs/branches
   const branches = useMemo(() => {
@@ -37,6 +41,29 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
     });
     return Array.from(set).sort();
   }, [students]);
+
+  // Extract unique counsellors from students dataset
+  const counsellorNames = useMemo(() => {
+    const map = new Map<string, number>();
+    students.forEach(s => {
+      if (s.counsellor) {
+        const cName = s.counsellor.trim();
+        map.set(cName, (map.get(cName) || 0) + 1);
+      }
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [students]);
+
+  // Check if currentUser is a counsellor in the dataset
+  const myAssignedCount = useMemo(() => {
+    if (!currentUser.name) return 0;
+    const target = currentUser.name.trim().toLowerCase();
+    return students.filter(s => {
+      if (!s.counsellor) return false;
+      const sc = s.counsellor.trim().toLowerCase();
+      return sc === target || target.includes(sc) || sc.includes(target);
+    }).length;
+  }, [students, currentUser.name]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -71,20 +98,70 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
             <h2 className="text-xl font-black text-slate-800 tracking-tight">Faculty Counseling & Behavior Portal</h2>
           </div>
           <p className="text-xs text-slate-400 font-bold mt-1">
-            Logged in as Faculty: <span className="text-indigo-600 font-black">{currentUser.name}</span> ({currentUser.department || 'Academic Faculty'})
+            Logged in as Faculty: <span className="text-indigo-600 font-black">{currentUser.name}</span> ({currentUser.department || 'Dept. of CSBS & IoT'})
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 bg-indigo-50 px-4 py-2.5 rounded-2xl border border-indigo-100">
-          <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-xs font-black text-indigo-900">Counseling Access Active</span>
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          {myAssignedCount > 0 && (
+            <button
+              onClick={() => setSelectedCounsellorModalName(currentUser.name)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center space-x-1.5 active:scale-95"
+            >
+              <span>📊 View My Counseling Breakdown ({myAssignedCount})</span>
+            </button>
+          )}
+
+          {/* Faculty View Tab Switcher */}
+          <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl space-x-1">
+            <button 
+              onClick={() => setFacultyTab('directory')}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${facultyTab === 'directory' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              Student Directory ({students.length})
+            </button>
+            <button 
+              onClick={() => setFacultyTab('risk')}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${facultyTab === 'risk' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              🚨 Critical Risk & Counseling
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm mb-6">
+      {facultyTab === 'risk' ? (
+        <RiskAnalysisDashboard students={students} currentUser={currentUser} />
+      ) : (
+        <>
+          {/* Quick Counsellor Filter Strip */}
+          <div className="bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-sm mb-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center">
+                <span className="w-2 h-2 bg-indigo-600 rounded-full mr-2"></span>
+                Faculty Counsellors Directory (Click any Counsellor for Breakdown)
+              </label>
+              <span className="text-[10px] font-bold text-slate-400">{counsellorNames.length} Active Counsellors</span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto custom-scrollbar p-1">
+              {counsellorNames.map(([cName, count]) => (
+                <button
+                  key={cName}
+                  onClick={() => setSelectedCounsellorModalName(cName)}
+                  className="px-3 py-1.5 bg-indigo-50/80 hover:bg-indigo-600 hover:text-white text-indigo-900 border border-indigo-100 rounded-xl text-xs font-black transition-all flex items-center space-x-2 shadow-2xs active:scale-95 group"
+                >
+                  <span>{cName}</span>
+                  <span className="px-1.5 py-0.5 bg-indigo-200 group-hover:bg-indigo-700 group-hover:text-white text-indigo-900 rounded-md text-[10px]">
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Filter & Search Bar */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm mb-6">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
           {/* Search Input */}
           <div className="md:col-span-6 relative">
@@ -160,7 +237,7 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {filteredStudents.map((s) => (
-            <StudentCard key={s.id} student={s} currentUser={currentUser} />
+            <StudentCard key={s.id} student={s} currentUser={currentUser} onOpenCounsellorAnalysis={(cName) => setSelectedCounsellorModalName(cName)} />
           ))}
 
           {filteredStudents.length === 0 && (
@@ -173,6 +250,34 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
             </div>
           )}
         </div>
+      )}
+        </>
+      )}
+
+      {/* Selected Student Modal View */}
+      {selectedStudent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-4xl rounded-[2.5rem] p-6 max-h-[90vh] overflow-y-auto relative">
+            <button 
+              onClick={() => setSelectedStudent(null)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-800 bg-slate-100 rounded-full"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <StudentCard student={selectedStudent} currentUser={currentUser} onOpenCounsellorAnalysis={(cName) => setSelectedCounsellorModalName(cName)} />
+          </div>
+        </div>
+      )}
+
+      {/* Counsellor Analysis Modal */}
+      {selectedCounsellorModalName && (
+        <CounsellorStatsModal
+          counsellorName={selectedCounsellorModalName}
+          students={students}
+          currentUser={currentUser}
+          onClose={() => setSelectedCounsellorModalName(null)}
+          onSelectStudent={(st) => setSelectedStudent(st)}
+        />
       )}
     </div>
   );

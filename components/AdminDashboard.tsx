@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Student, AppUser } from '../types';
 import StudentCard from './StudentCard';
 import FileUpload from './FileUpload';
+import RiskAnalysisDashboard from './RiskAnalysisDashboard';
+import CounsellorStatsModal from './CounsellorStatsModal';
 import { 
   subscribeToUsers, 
   addUserToFirebase, 
@@ -36,7 +38,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteStudent
 }) => {
   // Tab view inside Admin
-  const [adminTab, setAdminTab] = useState<'students' | 'search' | 'faculty'>('students');
+  const [adminTab, setAdminTab] = useState<'students' | 'risk' | 'search' | 'faculty'>('students');
 
   // Search Engine Specific State
   const [engineQuery, setEngineQuery] = useState('');
@@ -49,6 +51,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [counsellorSearch, setCounsellorSearch] = useState('');
   const [studentListSearch, setStudentListSearch] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [selectedCounsellorModalName, setSelectedCounsellorModalName] = useState<string | null>(null);
 
   // Users / Faculty List
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -61,7 +64,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
   // Form Inputs
-  const [googleUrlInput, setGoogleUrlInput] = useState(sheetUrl || '');
+  const DEFAULT_SHEET = 'https://docs.google.com/spreadsheets/d/1aHZzg0SxTAQvVfME5bMv2DKOaE3HgNUDvRVL8LKUp6o/edit?usp=sharing';
+  const [googleUrlInput, setGoogleUrlInput] = useState(sheetUrl || DEFAULT_SHEET);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Add/Edit Student Form state
@@ -73,7 +77,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     counsellor: '',
     year: '1',
     section: 'A',
-    branch: 'CSE'
+    branch: 'CSE',
+    cgpa: '',
+    attendance: '',
+    rGrade: '',
+    iGrade: ''
   });
 
   // Add User / Faculty Form state
@@ -288,7 +296,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         alert("Student added to Firebase Cloud!");
         setShowAddModal(false);
       }
-      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE' });
+      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
     } catch (e) {
       alert("Failed to save student record.");
     } finally {
@@ -450,7 +458,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       counsellor: s.counsellor,
       year: s.year,
       section: s.section,
-      branch: s.branch
+      branch: s.branch,
+      cgpa: s.cgpa || '',
+      attendance: s.attendance || '',
+      rGrade: s.rGrade || '',
+      iGrade: s.iGrade || ''
     });
   };
 
@@ -470,12 +482,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl">
+        <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl flex-wrap gap-1">
           <button 
             onClick={() => setAdminTab('students')}
             className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Student Directory ({students.length})
+          </button>
+          <button 
+            onClick={() => setAdminTab('risk')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'risk' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+          >
+            🚨 Critical Risk & Counseling
           </button>
           <button 
             onClick={() => setAdminTab('search')}
@@ -491,6 +509,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* RISK & COUNSELING ANALYSIS TAB */}
+      {adminTab === 'risk' && (
+        <RiskAnalysisDashboard 
+          students={students} 
+          currentUser={currentUser} 
+          onSelectStudent={(s) => setSelectedStudent(s)} 
+        />
+      )}
 
       {/* STUDENT DIRECTORY MANAGEMENT TAB */}
       {adminTab === 'students' && (
@@ -521,7 +548,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button 
                 onClick={() => {
                   setEditingStudent(null);
-                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE' });
+                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'CSE', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
                   setShowAddModal(true);
                 }}
                 className="px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all shadow-md flex items-center space-x-2 active:scale-95"
@@ -924,18 +951,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Snippet Card */}
-                <div className="mt-3 pt-3 border-t border-slate-50 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-bold text-slate-600">
+                <div className="mt-3 pt-3 border-t border-slate-50 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
                   <div className="bg-slate-50 p-3 rounded-xl">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Assigned Counsellor</span>
-                    <span className="text-slate-800 font-extrabold">{student.counsellor || 'Unassigned'}</span>
+                    <span className="text-slate-800 font-extrabold truncate block">{student.counsellor || 'Unassigned'}</span>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-xl">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Offered Program / Dept</span>
-                    <span className="text-indigo-700 font-black">{student.branch || 'CSBS'} (Dept. of CSBS & IoT)</span>
+                  <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-100">
+                    <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">CGPA & Attendance</span>
+                    <span className="text-blue-900 font-black">CGPA: {student.cgpa || 'N/A'} | Att: {student.attendance ? `${student.attendance}%` : 'N/A'}</span>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-xl">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Contact Numbers</span>
-                    <span className="text-slate-800 font-mono">{student.phone1 || student.phone2 || 'No phone recorded'}</span>
+                  <div className={`p-3 rounded-xl border ${student.rGrade && student.rGrade.toLowerCase() !== 'none' && student.rGrade !== '0' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
+                    <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest block mb-0.5">R-Grade (Att. Backlog)</span>
+                    <span className="text-slate-800 font-black truncate block" title={student.rGrade || 'None'}>{student.rGrade && student.rGrade.toLowerCase() !== 'none' ? student.rGrade : 'None'}</span>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${student.iGrade && student.iGrade.toLowerCase() !== 'none' && student.iGrade !== '0' ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-100'}`}>
+                    <span className="text-[9px] font-black text-purple-700 uppercase tracking-widest block mb-0.5">I-Grade (Supply Exam)</span>
+                    <span className="text-slate-800 font-black truncate block" title={student.iGrade || 'None'}>{student.iGrade && student.iGrade.toLowerCase() !== 'none' ? student.iGrade : 'None'}</span>
                   </div>
                 </div>
               </div>
@@ -1020,6 +1051,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {users.map((u) => {
               const dept = (u.department || '').toLowerCase();
               const isCounsellorAccount = u.id.includes('counsellor') || dept.includes('counsellor') || dept.includes('mentor');
+
+              // Assigned Students Metrics for this Faculty Counsellor
+              const assignedList = students.filter(s => {
+                if (!s.counsellor) return false;
+                const sc = s.counsellor.trim().toLowerCase();
+                const un = u.name.trim().toLowerCase();
+                return sc === un || un.includes(sc) || sc.includes(un);
+              });
+
+              let cleanCount = 0;
+              let rCount = 0;
+              let iCount = 0;
+
+              assignedList.forEach(s => {
+                const rStr = (s.rGrade || '').trim().toLowerCase();
+                const hasR = rStr !== '' && rStr !== 'none' && rStr !== '0';
+                const iStr = (s.iGrade || '').trim().toLowerCase();
+                const hasI = iStr !== '' && iStr !== 'none' && iStr !== '0';
+
+                if (!hasR && !hasI) cleanCount++;
+                if (hasR) rCount++;
+                if (hasI) iCount++;
+              });
+
               return (
                 <div key={u.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between group hover:border-indigo-300 transition-all">
                   <div>
@@ -1065,6 +1120,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-xs font-bold text-slate-400 mt-0.5">{u.email}</p>
                     {u.phone && <p className="text-xs font-bold text-slate-500 mt-1">📞 {u.phone}</p>}
                     <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1.5 rounded-xl inline-block">{u.department || 'Dept. of CSBS & IoT'}</p>
+
+                    {/* Counseling Portfolio Summary Box */}
+                    <div className="mt-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between text-xs font-black text-slate-800">
+                        <span>Assigned Counseling Portfolio</span>
+                        <span className="px-2 py-0.5 bg-slate-900 text-white rounded-md text-[10px]">{assignedList.length} Students</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5 text-[10px] font-extrabold text-center">
+                        <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-xl text-emerald-800" title="Students with No R-Grade and No I-Grade">
+                          <span className="block text-emerald-600 text-[8px] uppercase tracking-wider">No R & I</span>
+                          <span className="text-sm font-black">{cleanCount}</span>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-100 p-2 rounded-xl text-amber-900" title="Students having R-Grade">
+                          <span className="block text-amber-700 text-[8px] uppercase tracking-wider">Has R-Grade</span>
+                          <span className="text-sm font-black">{rCount}</span>
+                        </div>
+                        <div className="bg-purple-50 border border-purple-100 p-2 rounded-xl text-purple-900" title="Students having I-Grade">
+                          <span className="block text-purple-700 text-[8px] uppercase tracking-wider">Has I-Grade</span>
+                          <span className="text-sm font-black">{iCount}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setSelectedCounsellorModalName(u.name)}
+                        className="w-full mt-2 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 shadow-sm active:scale-95"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                        <span>View Counseling Breakdown</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-[10px] font-bold text-slate-400">
@@ -1420,6 +1506,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
                 />
               </div>
+
+              <div>
+                <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">CGPA</label>
+                <input 
+                  type="text" 
+                  value={formData.cgpa} 
+                  onChange={e => setFormData({...formData, cgpa: e.target.value})}
+                  placeholder="e.g. 8.45"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Attendance %</label>
+                <input 
+                  type="text" 
+                  value={formData.attendance} 
+                  onChange={e => setFormData({...formData, attendance: e.target.value})}
+                  placeholder="e.g. 82"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">R-Grade (Att. Shortage)</label>
+                <input 
+                  type="text" 
+                  value={formData.rGrade} 
+                  onChange={e => setFormData({...formData, rGrade: e.target.value})}
+                  placeholder="e.g. NONE or CS101"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-purple-600 uppercase tracking-widest block mb-1">I-Grade (Supply Exams)</label>
+                <input 
+                  type="text" 
+                  value={formData.iGrade} 
+                  onChange={e => setFormData({...formData, iGrade: e.target.value})}
+                  placeholder="e.g. NONE or MA201"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
+                />
+              </div>
             </div>
 
             <button 
@@ -1443,9 +1573,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
              </button>
              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">Detailed Student Profile</h4>
-             <StudentCard student={selectedStudent} currentUser={currentUser} />
+             <StudentCard student={selectedStudent} currentUser={currentUser} onOpenCounsellorAnalysis={(cName) => setSelectedCounsellorModalName(cName)} />
           </div>
         </div>
+      )}
+
+      {/* Counsellor Analysis Modal */}
+      {selectedCounsellorModalName && (
+        <CounsellorStatsModal
+          counsellorName={selectedCounsellorModalName}
+          students={students}
+          currentUser={currentUser}
+          onClose={() => setSelectedCounsellorModalName(null)}
+          onSelectStudent={(st) => setSelectedStudent(st)}
+        />
       )}
     </div>
   );

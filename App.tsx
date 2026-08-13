@@ -31,6 +31,8 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1aHZzg0SxTAQvVfME5bMv2DKOaE3HgNUDvRVL8LKUp6o/edit?usp=sharing';
+
   // Subscribe to Firestore Real-Time Students and Config
   useEffect(() => {
     setLoading(true);
@@ -39,6 +41,14 @@ const App: React.FC = () => {
       (data) => {
         setStudents(data);
         setLoading(false);
+
+        // If dataset is missing CGPA academic data or empty, automatically sync from user's Google Sheet URL
+        if (data.length === 0 || !data.some(s => s.cgpa)) {
+          console.log("Syncing default Google Sheet data into Firebase Cloud...");
+          CloudDB.fetchFromGoogleSheets(DEFAULT_SHEET_URL).catch(err => {
+            console.warn("Auto Google Sheet sync notice:", err);
+          });
+        }
       },
       (err) => {
         console.error("Firebase connection error:", err);

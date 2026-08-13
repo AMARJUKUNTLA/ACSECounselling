@@ -30,7 +30,7 @@ const CONFIG_DOC_PATH = 'config/settings';
  * Offered programs: CSBS, IoT, CSE, ECE, EEE, MECH, CIVIL, etc.
  */
 export const normalizeProgramBranch = (branchInput: string): string => {
-  if (!branchInput) return '';
+  if (!branchInput || !branchInput.trim() || branchInput.trim() === 'Not Assigned') return 'CSBS';
   const trimmed = branchInput.trim();
   const lower = trimmed.toLowerCase();
 
@@ -64,7 +64,9 @@ export const normalizeProgramBranch = (branchInput: string): string => {
  * Department name: 'Dept. of CSBS & IoT' for programs CSBS and IoT.
  */
 export const getDepartmentForBranch = (branchOrDept: string): string => {
-  if (!branchOrDept) return 'General Faculty';
+  if (!branchOrDept || !branchOrDept.trim() || branchOrDept === 'Not Assigned' || branchOrDept === 'General Faculty') {
+    return 'Dept. of CSBS & IoT';
+  }
   const program = normalizeProgramBranch(branchOrDept);
   const lower = program.toLowerCase();
 
@@ -101,6 +103,13 @@ export const subscribeToStudents = (
         year: data.year || '',
         section: data.section || '',
         branch: normalizeProgramBranch(data.branch || ''),
+        cgpa: data.cgpa || '',
+        attendance: data.attendance || '',
+        rGrade: data.rGrade || '',
+        rGradeCount: data.rGradeCount ?? '',
+        iGrade: data.iGrade || '',
+        iGradeCredits: data.iGradeCredits ?? '',
+        subjectAttendance: data.subjectAttendance || {}
       };
     });
     studentsList.sort((a, b) => a.name.localeCompare(b.name));
@@ -143,6 +152,13 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
           year: student.year || '',
           section: student.section || '',
           branch: normalizeProgramBranch(student.branch || ''),
+          cgpa: student.cgpa || '',
+          attendance: student.attendance || '',
+          rGrade: student.rGrade || '',
+          rGradeCount: student.rGradeCount ?? '',
+          iGrade: student.iGrade || '',
+          iGradeCredits: student.iGradeCredits ?? '',
+          subjectAttendance: student.subjectAttendance || {},
           updatedAt: new Date().toISOString()
         });
       });
@@ -639,15 +655,36 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
         return '';
       };
 
+      const subjectAttendance: Record<string, string> = {};
+      const knownKeys = new Set([
+        'reg.no', 'reg no', 'student name', 'year', 'section', 'cgpa', 'r-grade', 
+        'no.of r-grade courses', 'i-grade', 'no.of credits in i-grade', 'counsellor name', 
+        'sphno', 'fphno', 'attendance', 'sid', 'registration', 'regno', 'rno', 'rollno', 'htno',
+        'sname', 'name', 'stuname', 'full name', 'phone1', 'phone2', 'cname', 'counsellor', 'mentor', 'branch', 'dept'
+      ]);
+      headers.forEach((h, i) => {
+        if (!knownKeys.has(h) && values[i]) {
+          const keyUpper = h.toUpperCase();
+          subjectAttendance[keyUpper] = values[i];
+        }
+      });
+
       return {
-        regNo: getVal(['sid', 'reg no', 'registration', 'regno', 'rno', 'rollno', 'roll no', 'htno', 'hallticket']),
+        regNo: getVal(['sid', 'reg.no', 'reg no', 'registration', 'regno', 'rno', 'rollno', 'roll no', 'htno', 'hallticket']),
         name: getVal(['sname', 'name', 'student name', 'stuname', 'full name']),
         phone1: getVal(['sphno', 'phone1', 'student phone', 'phone 1', 'student mobile', 'mobile']),
         phone2: getVal(['fphno', 'phone2', 'father phone', 'parent phone', 'phone 2', 'father mobile', 'parent mobile']),
-        counsellor: getVal(['cname', 'counante', 'counsellor', 'mentor', 'faculty advisor', 'guide']),
+        counsellor: getVal(['cname', 'counsellor name', 'counante', 'counsellor', 'mentor', 'faculty advisor', 'guide']),
         year: getVal(['year', 'academic year', 'yr', 'class']),
         section: getVal(['section', 'sec']),
-        branch: normalizeProgramBranch(getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name'])),
+        branch: normalizeProgramBranch(getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name']) || 'CSBS'),
+        cgpa: getVal(['cgpa', 'gpa', 'cumulative gpa']),
+        attendance: getVal(['attendance', 'att', 'attendance %', 'overall attendance']),
+        rGrade: getVal(['r-grade', 'rgrade', 'r grade']),
+        rGradeCount: getVal(['no.of r-grade courses', 'rgradecount', 'no of r grade courses', 'r-grade count']),
+        iGrade: getVal(['i-grade', 'igrade', 'i grade']),
+        iGradeCredits: getVal(['no.of credits in i-grade', 'igradecredits', 'no of credits in i grade', 'i-grade credits']),
+        subjectAttendance,
         id: `gs-${index}`
       };
     });

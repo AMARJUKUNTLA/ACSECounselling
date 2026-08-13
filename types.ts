@@ -8,6 +8,13 @@ export interface Student {
   section: string;
   branch: string;
   id: string; // Internal ID
+  cgpa?: string;
+  attendance?: string;
+  rGrade?: string;
+  rGradeCount?: string | number;
+  iGrade?: string;
+  iGradeCredits?: string | number;
+  subjectAttendance?: Record<string, string>;
 }
 
 export type UserRole = 'admin' | 'faculty';
