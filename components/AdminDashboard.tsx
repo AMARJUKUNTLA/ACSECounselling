@@ -4,6 +4,7 @@ import StudentCard from './StudentCard';
 import FileUpload from './FileUpload';
 import RiskAnalysisDashboard from './RiskAnalysisDashboard';
 import CounsellorStatsModal from './CounsellorStatsModal';
+import AdminAiChatbot from './AdminAiChatbot';
 import { 
   subscribeToUsers, 
   subscribeToConfig,
@@ -41,7 +42,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteStudent
 }) => {
   // Tab view inside Admin
-  const [adminTab, setAdminTab] = useState<'students' | 'risk' | 'search' | 'faculty'>('students');
+  const [adminTab, setAdminTab] = useState<'students' | 'risk' | 'search' | 'faculty' | 'agent'>('students');
+  const [showFloatingAgent, setShowFloatingAgent] = useState(false);
 
   // Search Engine Specific State
   const [engineQuery, setEngineQuery] = useState('');
@@ -193,7 +195,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const displayedStudents = useMemo(() => {
     let list = students;
     if (filterValue && filterValue !== 'ALL') {
-      list = list.filter(s => (s.counsellor || 'Unassigned').trim().toLowerCase() === filterValue.trim().toLowerCase());
+      if (filterValue === 'low_attendance_50') {
+        list = list.filter(s => {
+          const clean = (s.attendance || '').replace(/[^0-9.]/g, '');
+          const att = parseFloat(clean);
+          return !isNaN(att) && att < 50;
+        });
+      } else if (filterValue.startsWith('below_')) {
+        const threshold = parseFloat(filterValue.replace('below_', ''));
+        list = list.filter(s => {
+          const clean = (s.attendance || '').replace(/[^0-9.]/g, '');
+          const att = parseFloat(clean);
+          return !isNaN(att) && att < threshold;
+        });
+      } else {
+        list = list.filter(s => (s.counsellor || 'Unassigned').trim().toLowerCase() === filterValue.trim().toLowerCase());
+      }
     }
     
     if (studentListSearch.trim()) {
@@ -539,6 +556,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'faculty' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
             Faculty & Personnel ({users.length})
+          </button>
+          <button 
+            onClick={() => setAdminTab('agent')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 ${adminTab === 'agent' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 bg-white/60'}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>🤖 AI Query Agent</span>
           </button>
         </div>
       </div>
@@ -1241,6 +1265,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* AI QUERY AGENT TAB */}
+      {adminTab === 'agent' && (
+        <AdminAiChatbot 
+          students={students}
+          currentUser={currentUser}
+          onSelectStudent={(s) => setSelectedStudent(s)}
+          onApplyDirectoryFilter={(fVal) => {
+            setFilterValue(fVal);
+            setAdminTab('students');
+          }}
+        />
+      )}
+
       {/* Add Faculty / Admin Modal */}
       {showAddUserModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -1670,6 +1707,43 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClose={() => setSelectedCounsellorModalName(null)}
           onSelectStudent={(st) => setSelectedStudent(st)}
         />
+      )}
+
+      {/* Floating AI Query Copilot for quick queries from any admin screen */}
+      {adminTab !== 'agent' && (
+        <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end space-y-3">
+          {showFloatingAgent && (
+            <div className="animate-in slide-in-from-bottom-5 zoom-in-95 duration-200">
+              <AdminAiChatbot 
+                students={students}
+                currentUser={currentUser}
+                onSelectStudent={(s) => setSelectedStudent(s)}
+                onApplyDirectoryFilter={(fVal) => {
+                  setFilterValue(fVal);
+                  setAdminTab('students');
+                  setShowFloatingAgent(false);
+                }}
+                isFloatingDrawer={true}
+                onCloseDrawer={() => setShowFloatingAgent(false)}
+              />
+            </div>
+          )}
+          {!showFloatingAgent && (
+            <button
+              onClick={() => setShowFloatingAgent(true)}
+              className="px-5 py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-slate-900 hover:from-indigo-700 hover:to-slate-950 text-white rounded-full shadow-2xl hover:shadow-indigo-500/30 border-2 border-white/20 flex items-center space-x-2.5 group transition-all duration-300 hover:scale-105 active:scale-95"
+            >
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-black tracking-wide">Ask AI Agent</span>
+              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider text-indigo-100 hidden sm:inline">
+                &lt;50% Att. &amp; Records
+              </span>
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
