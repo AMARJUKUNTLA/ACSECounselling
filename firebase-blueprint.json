@@ -1,61 +1,26 @@
 {
   "entities": {
-    "students": {
-      "title": "Students",
-      "description": "Student records directory",
-      "type": "object",
-      "properties": {
-        "regNo": { "type": "string" },
-        "name": { "type": "string" },
-        "phone1": { "type": "string" },
-        "phone2": { "type": "string" },
-        "counsellor": { "type": "string" },
-        "year": { "type": "string" },
-        "section": { "type": "string" },
-        "branch": { "type": "string" },
-        "updatedAt": { "type": "string" }
-      },
-      "required": ["regNo", "name"]
-    },
-    "users": {
-      "title": "Authorized Users",
-      "description": "Faculty and Admin accounts for authorized portal access",
-      "type": "object",
-      "properties": {
-        "email": { "type": "string" },
-        "name": { "type": "string" },
-        "role": { "type": "string" },
-        "department": { "type": "string" },
-        "phone": { "type": "string" },
-        "createdAt": { "type": "string" }
-      },
-      "required": ["email", "name", "role"]
-    },
     "remarks": {
       "title": "Student Remarks & Counseling Notes",
-      "description": "Faculty counseling notes and behavioral remarks for students",
+      "description": "Faculty counseling notes and behavioral remarks for students stored in Firebase Firestore",
       "type": "object",
       "properties": {
-        "studentId": { "type": "string" },
-        "studentRegNo": { "type": "string" },
-        "studentName": { "type": "string" },
-        "facultyId": { "type": "string" },
-        "facultyName": { "type": "string" },
-        "category": { "type": "string" },
-        "remark": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentRegNo": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "facultyId": { "type": "string", "maxLength": 128 },
+        "facultyName": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "remark": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["studentId", "facultyId", "remark"]
-    },
-    "config": {
-      "title": "App Configuration",
-      "description": "Global application configuration settings",
-      "type": "object",
-      "properties": {
-        "sheetUrl": { "type": "string" },
-        "lastUpdated": { "type": "string" },
-        "totalStudents": { "type": "number" }
-      }
+    }
+  },
+  "firestore": {
+    "/remarks/{remarkId}": {
+      "schema": "remarks",
+      "description": "Faculty student counseling remarks collection"
     }
   }
 }

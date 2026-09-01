@@ -1,8 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Default deny all other paths
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // Student Remarks and Counseling Notes collection
+    match /remarks/{remarkId} {
+      allow read, create, update, delete: if true;
     }
   }
 }

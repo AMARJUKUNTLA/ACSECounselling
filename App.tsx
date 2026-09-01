@@ -76,9 +76,13 @@ const App: React.FC = () => {
       if (config.lastUpdated) setLastUpdated(config.lastUpdated);
     });
 
+    // Subscribe to Firebase Cloud Student Remarks
+    const unsubscribeRemarks = CloudDB.subscribeToAllRemarks(() => {});
+
     return () => {
       unsubscribeStudents();
       unsubscribeConfig();
+      if (unsubscribeRemarks) unsubscribeRemarks();
     };
   }, []);
 

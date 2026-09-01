@@ -313,9 +313,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       await onExcelUpload(uploadedData);
       setShowUploadModal(false);
-      alert(`Success! Uploaded ${uploadedData.length} students to Firebase Cloud.`);
+      alert(`Success! Loaded and processed ${uploadedData.length} students.`);
     } catch (err) {
-      alert("Failed to upload data to Firebase. Please try again.");
+      alert("Failed to upload data. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -328,7 +328,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       await onGoogleSheetSync(googleUrlInput.trim());
       setShowSheetModal(false);
-      alert("Successfully synced Google Sheet data to Firebase Cloud!");
+      alert("Successfully synced Google Sheet attendance and student records!");
     } catch (err: any) {
       alert(`Sync failed: ${err.message || 'Check URL or sharing permissions'}`);
     } finally {
@@ -346,11 +346,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       if (editingStudent) {
         await onUpdateStudent(editingStudent.id, formData);
-        alert("Student updated in Firebase Cloud!");
+        alert("Student record updated successfully!");
         setEditingStudent(null);
       } else {
         await onAddStudent(formData);
-        alert("Student added to Firebase Cloud!");
+        alert("New student record created successfully!");
         setShowAddModal(false);
       }
       setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '2', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
@@ -1489,8 +1489,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button onClick={() => setShowUploadModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
-            <h3 className="text-2xl font-black text-slate-900 mb-2">Import Excel / CSV to Firebase</h3>
-            <p className="text-slate-500 mb-6 text-sm">Upload Excel spreadsheet. All parsed student rows will be saved directly into Firebase Cloud Firestore.</p>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Import Excel / CSV Roster</h3>
+            <p className="text-slate-500 mb-6 text-sm">Upload Excel spreadsheet. All parsed student records and attendance metrics will be loaded into the directory.</p>
             <FileUpload onDataLoaded={handleExcelLoaded} isLoading={isProcessing} />
           </div>
         </div>
@@ -1504,8 +1504,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button type="button" onClick={() => setShowSheetModal(false)} className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
-            <h3 className="text-2xl font-black text-slate-900 mb-2">Sync Google Sheets to Firebase</h3>
-            <p className="text-slate-500 mb-6 text-sm">Paste a public Google Sheet URL. Data will be fetched and stored directly into Firebase Cloud Firestore for real-time synchronization.</p>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Sync Google Sheets Data</h3>
+            <p className="text-slate-500 mb-6 text-sm">Paste a public Google Sheet URL. Data will be fetched, parsed, and updated instantly.</p>
             <div className="space-y-4">
               <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-xs font-bold text-emerald-900 space-y-1">
                 <p className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Auto-Extraction Active</p>
@@ -1525,7 +1525,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 flex items-center justify-center space-x-2"
               >
                 {isProcessing && <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>}
-                <span>{isProcessing ? 'Syncing to Firebase...' : 'Import to Firebase Cloud'}</span>
+                <span>{isProcessing ? 'Syncing...' : 'Sync Google Sheet'}</span>
               </button>
             </div>
           </form>
@@ -1541,7 +1541,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
             <h3 className="text-2xl font-black text-slate-900 mb-1">{editingStudent ? 'Edit Student Record' : 'Add New Student'}</h3>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6">Persists directly into Firebase Cloud</p>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6">Student Directory Record</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>

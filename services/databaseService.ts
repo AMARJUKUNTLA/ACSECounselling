@@ -1,17 +1,13 @@
 import { 
   collection, 
   doc, 
-  getDocs, 
-  setDoc, 
-  writeBatch, 
   onSnapshot, 
   deleteDoc,
   updateDoc,
   addDoc,
-  getDoc,
   query,
   where,
-  disableNetwork,
+  getDocs,
   enableNetwork
 } from 'firebase/firestore';
 import { 
@@ -22,10 +18,8 @@ import {
 import { db, auth } from './firebase';
 import { Student, AppUser, StudentRemark } from '../types';
 
-const STUDENTS_COLLECTION = 'students';
-const USERS_COLLECTION = 'users';
+// Firestore is used ONLY for student remarks as requested
 const REMARKS_COLLECTION = 'remarks';
-const CONFIG_DOC_PATH = 'config/settings';
 
 const LOCAL_STORAGE_KEYS = {
   STUDENTS: 'edubase_local_students_cache',
@@ -35,7 +29,13 @@ const LOCAL_STORAGE_KEYS = {
   QUOTA_EXCEEDED: 'edubase_quota_exceeded_flag'
 };
 
-// Quota State & Listeners
+// Listeners for local reactive state
+const studentsListeners = new Set<(students: Student[]) => void>();
+const usersListeners = new Set<(users: AppUser[]) => void>();
+const configListeners = new Set<(config: any) => void>();
+const quotaListeners = new Set<(isExceeded: boolean) => void>();
+
+// Quota State
 let isQuotaExceededState = (() => {
   try {
     return sessionStorage.getItem(LOCAL_STORAGE_KEYS.QUOTA_EXCEEDED) === 'true';
@@ -43,8 +43,6 @@ let isQuotaExceededState = (() => {
     return false;
   }
 })();
-
-const quotaListeners = new Set<(isExceeded: boolean) => void>();
 
 export const checkIsQuotaExceeded = () => isQuotaExceededState;
 
@@ -75,10 +73,7 @@ export const notifyQuotaExceeded = () => {
     try {
       sessionStorage.setItem(LOCAL_STORAGE_KEYS.QUOTA_EXCEEDED, 'true');
     } catch (e) {}
-    console.warn("⚠️ Firestore Quota Exceeded. Disabling Firestore network to prevent retries and backoff delays.");
-    try {
-      disableNetwork(db).catch(() => {});
-    } catch (e) {}
+    console.warn("⚠️ Firestore Quota Notice: Fallback to local cache active.");
     quotaListeners.forEach(cb => cb(true));
   }
 };
@@ -99,6 +94,36 @@ const setLocalStorage = <T>(key: string, data: T): void => {
   } catch (e) {
     console.warn("LocalStorage write error:", e);
   }
+};
+
+const notifyStudentsSubscribers = (students: Student[]) => {
+  studentsListeners.forEach(cb => {
+    try {
+      cb(students);
+    } catch (err) {
+      console.warn("Subscriber error:", err);
+    }
+  });
+};
+
+const notifyUsersSubscribers = (users: AppUser[]) => {
+  usersListeners.forEach(cb => {
+    try {
+      cb(users);
+    } catch (err) {
+      console.warn("Subscriber error:", err);
+    }
+  });
+};
+
+const notifyConfigSubscribers = (config: any) => {
+  configListeners.forEach(cb => {
+    try {
+      cb(config);
+    } catch (err) {
+      console.warn("Subscriber error:", err);
+    }
+  });
 };
 
 /**
@@ -128,7 +153,7 @@ export const normalizeProgramBranch = (branchInput: string, regNo?: string): str
     return 'B.Tech CSBS';
   }
 
-  // If input contains combined/lateral descriptors (e.g. "B.Tech CSBS & CSE (IoT) (Combined/Lateral)", "Combined/Lateral", "CSBS & IoT")
+  // If input contains combined/lateral descriptors
   if (
     lower.includes('combined') || 
     lower.includes('lateral') || 
@@ -137,7 +162,6 @@ export const normalizeProgramBranch = (branchInput: string, regNo?: string): str
     lower.includes('csbs/iot') || 
     lower.includes('iot/csbs')
   ) {
-    // Check if regNo or string specifies branch
     if (regNo) {
       const cleanReg = regNo.toUpperCase();
       if (cleanReg.includes('49') || cleanReg.includes('IOT')) {
@@ -147,7 +171,6 @@ export const normalizeProgramBranch = (branchInput: string, regNo?: string): str
         return 'B.Tech CSBS';
       }
     }
-    // Default to B.Tech CSBS
     return 'B.Tech CSBS';
   }
 
@@ -247,67 +270,28 @@ export const sanitizeSubjectAttendance = (raw?: Record<string, string>): Record<
 };
 
 // ==========================================
-// 1. STUDENT MANAGEMENT
+// 1. STUDENT MANAGEMENT (Local Persistent Store)
 // ==========================================
 
 export const subscribeToStudents = (
   onData: (students: Student[]) => void, 
   onError?: (err: Error) => void
 ) => {
-  // Immediately serve cached students if present (filtered of bad header rows)
   const cachedStudents = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []).filter(isValidStudentRecord);
-  if (cachedStudents.length > 0) {
-    onData(cachedStudents);
-  }
+  onData(cachedStudents);
 
-  const studentsColRef = collection(db, STUDENTS_COLLECTION);
-  return onSnapshot(studentsColRef, (snapshot) => {
-    const studentsList: Student[] = snapshot.docs
-      .map(docSnap => {
-        const data = docSnap.data();
-        const regNo = data.regNo || '';
-        return {
-          id: docSnap.id,
-          regNo,
-          name: data.name || '',
-          phone1: data.phone1 || '',
-          phone2: data.phone2 || '',
-          counsellor: data.counsellor || '',
-          year: normalizeAcademicYear(data.year),
-          section: data.section || '',
-          branch: normalizeProgramBranch(data.branch || '', regNo),
-          cgpa: data.cgpa || '',
-          attendance: data.attendance || '',
-          rGrade: data.rGrade || '',
-          rGradeCount: data.rGradeCount ?? '',
-          iGrade: data.iGrade || '',
-          iGradeCredits: data.iGradeCredits ?? '',
-          subjectAttendance: data.subjectAttendance || {},
-          remarks: data.remarks || '',
-          attendanceUpdatedAt: data.attendanceUpdatedAt || data.updatedAt || '',
-          updatedAt: data.updatedAt || ''
-        };
-      })
-      .filter(isValidStudentRecord);
+  const listener = (updated: Student[]) => {
+    onData(updated.filter(isValidStudentRecord));
+  };
+  studentsListeners.add(listener);
 
-    studentsList.sort((a, b) => a.name.localeCompare(b.name));
-    setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, studentsList);
-    onData(studentsList);
-  }, (error) => {
-    console.warn("Firestore real-time subscription notice:", error);
-    if (isQuotaError(error)) {
-      notifyQuotaExceeded();
-    }
-    const fallback = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []).filter(isValidStudentRecord);
-    onData(fallback);
-    if (onError) onError(error);
-  });
+  return () => {
+    studentsListeners.delete(listener);
+  };
 };
 
 /**
- * Partial Attendance Update - Strictly Preserves Remarks and Non-Attendance Fields
- * Performs a partial update ({ merge: true }) in Firebase Firestore and updates attendanceUpdatedAt.
- * CRITICAL: 'remarks' is NEVER deleted, overwritten, cleared, replaced, or set to null/empty.
+ * Saves or updates student records locally while strictly preserving remarks.
  */
 export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: string): Promise<void> => {
   const existingLocal = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
@@ -323,94 +307,35 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
     const key = (s.regNo || '').trim().toUpperCase();
     const existing = existingMap.get(key) || existingMap.get(s.id);
     
-    // CRITICAL: Preserve existing remarks from local cache if present
+    // CRITICAL: Preserve existing remarks
     const preservedRemarks = (existing && existing.remarks) ? existing.remarks : (s.remarks || undefined);
-    const existingAttendanceUpdated = existing?.attendanceUpdatedAt;
 
     return {
       ...s,
       year: normalizeAcademicYear(s.year),
       branch: normalizeProgramBranch(s.branch || '', s.regNo),
       ...(preservedRemarks ? { remarks: preservedRemarks } : {}),
-      attendanceUpdatedAt: nowIso
+      attendanceUpdatedAt: nowIso,
+      updatedAt: nowIso
     };
   });
 
   setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, cleanStudents);
+  notifyStudentsSubscribers(cleanStudents);
 
-  if (isQuotaExceededState) {
-    console.warn("Quota exceeded: Saved student attendance to local cache only.");
-    return;
-  }
+  const cachedConfig = getLocalStorage<any>(LOCAL_STORAGE_KEYS.CONFIG, {});
+  const newConfig = {
+    ...cachedConfig,
+    lastUpdated: nowIso,
+    attendanceUpdatedAt: nowIso,
+    totalStudents: cleanStudents.length,
+    ...(sheetUrl !== undefined ? { sheetUrl } : {})
+  };
+  setLocalStorage(LOCAL_STORAGE_KEYS.CONFIG, newConfig);
+  notifyConfigSubscribers(newConfig);
 
-  try {
-    // We do NOT delete existing docs. We perform partial merge updates so existing remarks and fields are strictly preserved.
-    for (let i = 0; i < cleanStudents.length; i += 400) {
-      const batch = writeBatch(db);
-      const chunk = cleanStudents.slice(i, i + 400);
-
-      chunk.forEach((student, idx) => {
-        const docId = student.regNo 
-          ? `st-${student.regNo.replace(/[^a-zA-Z0-9_-]/g, '_')}` 
-          : `st-${i + idx}-${Date.now()}`;
-        const docRef = doc(db, STUDENTS_COLLECTION, docId);
-
-        // Attendance & Academic payload - ONLY attendance and student identity fields
-        // STRICT RULE: Do NOT include remarks: "", remarks: null, remarks: undefined
-        const updatePayload: Record<string, any> = {
-          regNo: student.regNo || '',
-          name: student.name || '',
-          phone1: student.phone1 || '',
-          phone2: student.phone2 || '',
-          counsellor: student.counsellor || '',
-          year: normalizeAcademicYear(student.year),
-          section: student.section || '',
-          branch: normalizeProgramBranch(student.branch || '', student.regNo),
-          cgpa: student.cgpa || '',
-          attendance: student.attendance || '',
-          rGrade: student.rGrade || '',
-          rGradeCount: student.rGradeCount ?? '',
-          iGrade: student.iGrade || '',
-          iGradeCredits: student.iGradeCredits ?? '',
-          subjectAttendance: sanitizeSubjectAttendance(student.subjectAttendance),
-          attendanceUpdatedAt: nowIso,
-          updatedAt: nowIso
-        };
-
-        // If remarks is explicitly present on student object and non-empty, preserve it; otherwise DO NOT touch remarks
-        if (student.remarks && student.remarks.trim()) {
-          updatePayload.remarks = student.remarks.trim();
-        }
-
-        // Use { merge: true } to guarantee that existing remarks in Firebase Firestore are NEVER deleted or overwritten!
-        batch.set(docRef, updatePayload, { merge: true });
-      });
-
-      await batch.commit();
-    }
-
-    const configRef = doc(db, CONFIG_DOC_PATH);
-    const configUpdate: any = {
-      lastUpdated: nowIso,
-      attendanceUpdatedAt: nowIso,
-      totalStudents: cleanStudents.length
-    };
-    if (sheetUrl !== undefined) {
-      configUpdate.sheetUrl = sheetUrl;
-    }
-    await setDoc(configRef, configUpdate, { merge: true });
-
-    // Automatically sync faculty user accounts for any new counsellors found
-    await syncCounsellorAccountsFromStudents(cleanStudents);
-  } catch (error) {
-    if (isQuotaError(error)) {
-      notifyQuotaExceeded();
-      console.warn("Firestore Quota exceeded while updating attendance. Maintained in local cache.");
-      return;
-    }
-    console.error("Error updating student attendance in Firebase:", error);
-    throw error;
-  }
+  // Automatically sync faculty accounts for all counsellors
+  await syncCounsellorAccountsFromStudents(cleanStudents);
 };
 
 /**
@@ -435,326 +360,179 @@ export const updateStudentAttendanceInFirebase = async (
       return {
         ...s,
         ...attendanceData,
-        attendanceUpdatedAt: nowIso
+        attendanceUpdatedAt: nowIso,
+        updatedAt: nowIso
       };
     }
     return s;
   });
   setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedList);
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const docId = studentId.startsWith('st-') ? studentId : `st-${studentId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const studentDocRef = doc(db, STUDENTS_COLLECTION, docId);
-
-    const updatePayload: Record<string, any> = {
-      attendanceUpdatedAt: nowIso,
-      updatedAt: nowIso
-    };
-
-    if (attendanceData.attendance !== undefined) updatePayload.attendance = attendanceData.attendance;
-    if (attendanceData.cgpa !== undefined) updatePayload.cgpa = attendanceData.cgpa;
-    if (attendanceData.rGrade !== undefined) updatePayload.rGrade = attendanceData.rGrade;
-    if (attendanceData.rGradeCount !== undefined) updatePayload.rGradeCount = attendanceData.rGradeCount;
-    if (attendanceData.iGrade !== undefined) updatePayload.iGrade = attendanceData.iGrade;
-    if (attendanceData.iGradeCredits !== undefined) updatePayload.iGradeCredits = attendanceData.iGradeCredits;
-    if (attendanceData.subjectAttendance) {
-      updatePayload.subjectAttendance = sanitizeSubjectAttendance(attendanceData.subjectAttendance);
-    }
-
-    // Partial update - remarks and other fields are strictly preserved
-    await setDoc(studentDocRef, updatePayload, { merge: true });
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return;
-    }
-    throw e;
-  }
+  notifyStudentsSubscribers(updatedList);
 };
 
 export const addStudentToFirebase = async (student: Omit<Student, 'id'>): Promise<string> => {
   const localList = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
   const tempId = `st-local-${Date.now()}`;
-  const newStudentRecord: Student = { ...student, id: tempId, branch: normalizeProgramBranch(student.branch || '') };
-  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, [newStudentRecord, ...localList]);
+  const newStudentRecord: Student = { 
+    ...student, 
+    id: tempId, 
+    branch: normalizeProgramBranch(student.branch || ''),
+    year: normalizeAcademicYear(student.year),
+    updatedAt: new Date().toISOString()
+  };
+  const updatedList = [newStudentRecord, ...localList];
+  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedList);
+  notifyStudentsSubscribers(updatedList);
 
-  if (isQuotaExceededState) {
-    return tempId;
+  if (student.counsellor) {
+    await syncCounsellorAccountsFromStudents(updatedList);
   }
 
-  try {
-    const studentsColRef = collection(db, STUDENTS_COLLECTION);
-    const docRef = await addDoc(studentsColRef, {
-      ...student,
-      subjectAttendance: sanitizeSubjectAttendance(student.subjectAttendance),
-      updatedAt: new Date().toISOString()
-    });
-
-    if (student.counsellor) {
-      await syncCounsellorAccountsFromStudents();
-    }
-
-    return docRef.id;
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return tempId;
-    }
-    throw e;
-  }
+  return tempId;
 };
 
 export const updateStudentInFirebase = async (id: string, updatedFields: Partial<Student>): Promise<void> => {
   const localList = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
-  const updatedList = localList.map(s => s.id === id ? { ...s, ...updatedFields } : s);
+  const updatedList = localList.map(s => {
+    if (s.id === id || s.regNo === id) {
+      return { 
+        ...s, 
+        ...updatedFields, 
+        branch: updatedFields.branch ? normalizeProgramBranch(updatedFields.branch, s.regNo) : s.branch,
+        year: updatedFields.year ? normalizeAcademicYear(updatedFields.year) : s.year,
+        updatedAt: new Date().toISOString() 
+      };
+    }
+    return s;
+  });
   setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedList);
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const studentDocRef = doc(db, STUDENTS_COLLECTION, id);
-    const fieldsToUpdate: any = {
-      ...updatedFields,
-      updatedAt: new Date().toISOString()
-    };
-    if (updatedFields.subjectAttendance) {
-      fieldsToUpdate.subjectAttendance = sanitizeSubjectAttendance(updatedFields.subjectAttendance);
-    }
-    await updateDoc(studentDocRef, fieldsToUpdate);
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return;
-    }
-    throw e;
-  }
+  notifyStudentsSubscribers(updatedList);
 };
 
 export const deleteStudentFromFirebase = async (id: string): Promise<void> => {
   const localList = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
-  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, localList.filter(s => s.id !== id));
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const studentDocRef = doc(db, STUDENTS_COLLECTION, id);
-    await deleteDoc(studentDocRef);
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return;
-    }
-    throw e;
-  }
+  const updatedList = localList.filter(s => s.id !== id && s.regNo !== id);
+  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedList);
+  notifyStudentsSubscribers(updatedList);
 };
 
 // ==========================================
-// 2. USER AUTH & FACULTY / ADMIN MANAGEMENT
+// 2. USER AUTH & MANAGEMENT (Local Persistent Store)
 // ==========================================
+
+const DEFAULT_ACCOUNTS: AppUser[] = [
+  {
+    id: 'usr-admin-system',
+    email: 'admin@edubase.edu',
+    name: 'System Administrator',
+    role: 'admin',
+    department: 'Administration',
+    phone: '9876543210',
+    password: 'admin',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'usr-faculty-default',
+    email: 'faculty@edubase.edu',
+    name: 'Dr. Rahul Sharma',
+    role: 'faculty',
+    department: 'Department of CSBS & IoT',
+    phone: '9876543211',
+    password: 'faculty123',
+    createdAt: new Date().toISOString()
+  }
+];
+
+export const seedDefaultUsersIfEmpty = async (): Promise<void> => {
+  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
+  if (cachedUsers.length === 0) {
+    setLocalStorage(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+    notifyUsersSubscribers(DEFAULT_ACCOUNTS);
+  }
+};
 
 export const subscribeToUsers = (onData: (users: AppUser[]) => void) => {
   const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-  if (cachedUsers.length > 0) {
+  if (cachedUsers.length === 0) {
+    setLocalStorage(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+    onData(DEFAULT_ACCOUNTS);
+  } else {
     onData(cachedUsers);
   }
 
-  const usersColRef = collection(db, USERS_COLLECTION);
-  return onSnapshot(usersColRef, (snapshot) => {
-    const userList: AppUser[] = snapshot.docs.map(docSnap => {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        email: data.email || '',
-        name: data.name || '',
-        role: (data.role as 'admin' | 'faculty') || 'faculty',
-        department: data.department || '',
-        phone: data.phone || '',
-        password: data.password || 'faculty123',
-        createdAt: data.createdAt || ''
-      };
-    });
-    userList.sort((a, b) => a.name.localeCompare(b.name));
-    setLocalStorage(LOCAL_STORAGE_KEYS.USERS, userList);
-    onData(userList);
-  }, (error) => {
-    if (isQuotaError(error)) {
-      notifyQuotaExceeded();
-    }
-    const fallback = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-    onData(fallback);
-  });
+  const listener = (users: AppUser[]) => {
+    onData(users);
+  };
+  usersListeners.add(listener);
+
+  return () => {
+    usersListeners.delete(listener);
+  };
 };
 
-/**
- * Seed default accounts in Firestore if none exist.
- */
-export const seedDefaultUsersIfEmpty = async () => {
-  if (isQuotaExceededState) return;
+export const syncCounsellorAccountsFromStudents = async (studentList?: Student[]): Promise<number> => {
+  const students = studentList || getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+  if (!students || students.length === 0) return 0;
 
-  try {
-    const usersColRef = collection(db, USERS_COLLECTION);
-    const snap = await getDocs(usersColRef);
-    if (snap.empty) {
-      console.log("Seeding default Admin & Faculty accounts in Firestore...");
+  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+  const existingNames = new Set(cachedUsers.map(u => (u.name || '').trim().toLowerCase()));
+  const existingEmails = new Set(cachedUsers.map(u => (u.email || '').trim().toLowerCase()));
+
+  const uniqueCounsellors = Array.from(new Set(
+    students
+      .map(s => (s.counsellor || '').trim())
+      .filter(c => c && c.length > 2 && c.toLowerCase() !== 'not assigned' && c.toLowerCase() !== 'general faculty')
+  ));
+
+  let newlyCreated = 0;
+  const updatedUsers = [...cachedUsers];
+
+  uniqueCounsellors.forEach(cName => {
+    const cleanName = cName.trim();
+    if (!existingNames.has(cleanName.toLowerCase())) {
+      const emailPrefix = cleanName
+        .toLowerCase()
+        .replace(/^(dr\.|mr\.|mrs\.|ms\.|prof\.)\s*/i, '')
+        .replace(/[^a-z0-9]/g, '.');
+      let genEmail = `${emailPrefix || 'counsellor'}@edubase.edu`;
       
-      const adminDoc = doc(db, USERS_COLLECTION, 'admin-default');
-      await setDoc(adminDoc, {
-        email: 'admin@edubase.edu',
-        name: 'System Administrator',
-        role: 'admin',
-        department: 'Administration',
-        password: 'admin123',
-        createdAt: new Date().toISOString()
-      });
+      let counter = 1;
+      while (existingEmails.has(genEmail)) {
+        genEmail = `${emailPrefix}${counter}@edubase.edu`;
+        counter++;
+      }
 
-      const facultyDoc = doc(db, USERS_COLLECTION, 'faculty-default');
-      await setDoc(facultyDoc, {
-        email: 'faculty@edubase.edu',
-        name: 'Dr. Rahul Sharma',
+      existingNames.add(cleanName.toLowerCase());
+      existingEmails.add(genEmail);
+
+      const newUser: AppUser = {
+        id: `usr-counsellor-${Date.now()}-${newlyCreated}`,
+        name: cleanName,
+        email: genEmail,
         role: 'faculty',
         department: 'Department of CSBS & IoT',
+        phone: '',
         password: 'faculty123',
         createdAt: new Date().toISOString()
-      });
+      };
+      updatedUsers.push(newUser);
+      newlyCreated++;
+    }
+  });
 
-      // Try creating them in Firebase Auth
-      try {
-        await createUserWithEmailAndPassword(auth, 'admin@edubase.edu', 'admin123');
-      } catch (e) { /* ignore if already exists */ }
-      try {
-        await createUserWithEmailAndPassword(auth, 'faculty@edubase.edu', 'faculty123');
-      } catch (e) { /* ignore if already exists */ }
-    }
-  } catch (err) {
-    if (isQuotaError(err)) {
-      notifyQuotaExceeded();
-    } else {
-      console.warn("User seeding error:", err);
-    }
+  if (newlyCreated > 0) {
+    setLocalStorage(LOCAL_STORAGE_KEYS.USERS, updatedUsers);
+    notifyUsersSubscribers(updatedUsers);
   }
+
+  return newlyCreated;
 };
 
-/**
- * Automatically create faculty user accounts for counsellors listed in student data.
- */
-export const syncCounsellorAccountsFromStudents = async (studentsList?: Student[]): Promise<number> => {
-  try {
-    let targetStudents = studentsList;
-    if (!targetStudents || targetStudents.length === 0) {
-      const studentsColRef = collection(db, STUDENTS_COLLECTION);
-      const snap = await getDocs(studentsColRef);
-      targetStudents = snap.docs.map(docSnap => docSnap.data() as Student);
-    }
-
-    if (!targetStudents || targetStudents.length === 0) return 0;
-
-    // Extract unique counsellor names
-    const counsellorNamesSet = new Set<string>();
-    targetStudents.forEach(s => {
-      const name = (s.counsellor || '').trim();
-      if (name && 
-          name.toLowerCase() !== 'unassigned' && 
-          name.toLowerCase() !== 'not assigned' && 
-          name.toLowerCase() !== 'none' &&
-          name.toLowerCase() !== 'n/a') {
-        counsellorNamesSet.add(name);
-      }
-    });
-
-    if (counsellorNamesSet.size === 0) return 0;
-
-    // Fetch existing users
-    const usersColRef = collection(db, USERS_COLLECTION);
-    const existingUsersSnap = await getDocs(usersColRef);
-    const existingUsers = existingUsersSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
-
-    let createdCount = 0;
-
-    for (const cName of Array.from(counsellorNamesSet)) {
-      // Find branch/department from student data for this counsellor
-      const counsellorStudents = targetStudents.filter(s => (s.counsellor || '').trim().toLowerCase() === cName.toLowerCase());
-      const branches = Array.from(new Set(counsellorStudents.map(s => normalizeProgramBranch(s.branch || '')).filter(Boolean)));
-      const depts = Array.from(new Set(branches.map(b => getDepartmentForBranch(b))));
-      const counsellorDept = depts.length > 0 ? (depts.length === 1 ? depts[0] : depts.join(', ')) : 'Department of CSBS & IoT';
-
-      // Check if user already exists with matching name or email
-      const existingUser = existingUsers.find(u => 
-        (u.name && u.name.trim().toLowerCase() === cName.toLowerCase()) ||
-        (u.counsellorName && u.counsellorName.trim().toLowerCase() === cName.toLowerCase())
-      );
-
-      if (!existingUser) {
-        // Create faculty account for this counsellor
-        const sanitizedSlug = cName.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-        const email = `${sanitizedSlug}@edubase.edu`;
-        const docId = `usr-counsellor-${sanitizedSlug}`;
-        const defaultPassword = 'faculty123';
-
-        const userDocRef = doc(db, USERS_COLLECTION, docId);
-        await setDoc(userDocRef, {
-          name: cName,
-          counsellorName: cName,
-          email: email,
-          role: 'faculty',
-          department: counsellorDept,
-          password: defaultPassword,
-          isAutoCounsellor: true,
-          createdAt: new Date().toISOString()
-        });
-
-        // Try creating in Firebase Auth
-        try {
-          await createUserWithEmailAndPassword(auth, email, defaultPassword);
-        } catch (authErr) {
-          // Ignore if auth account already exists
-        }
-
-        createdCount++;
-      } else {
-        // If user exists but department is generic, update department from student data
-        if (counsellorDept !== 'Faculty Counsellor / Mentor' && 
-            (!existingUser.department || existingUser.department === 'Faculty Counsellor / Mentor' || existingUser.department === 'Faculty Member')) {
-          const userDocRef = doc(db, USERS_COLLECTION, existingUser.id);
-          await setDoc(userDocRef, { department: counsellorDept }, { merge: true });
-        }
-      }
-    }
-
-    return createdCount;
-  } catch (err) {
-    if (isQuotaError(err)) {
-      notifyQuotaExceeded();
-    } else {
-      console.warn("Notice syncing counsellor accounts:", err);
-    }
-    return 0;
-  }
-};
-
-/**
- * Authenticate User by Email / Username / Counsellor Name & Password
- */
-export const loginUser = async (emailOrUser: string, passwordInput: string): Promise<AppUser> => {
-  await seedDefaultUsersIfEmpty();
-
-  const formattedInput = emailOrUser.trim().toLowerCase();
+export const loginUser = async (emailOrNameOrId: string, passwordInput: string): Promise<AppUser> => {
+  const formattedInput = emailOrNameOrId.trim().toLowerCase();
   const searchEmail = formattedInput.includes('@') ? formattedInput : `${formattedInput}@edubase.edu`;
 
-  let allUsers: any[] = [];
-  if (!isQuotaExceededState) {
-    try {
-      const usersColRef = collection(db, USERS_COLLECTION);
-      const snap = await getDocs(usersColRef);
-      allUsers = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() as any }));
-    } catch (e) {
-      if (isQuotaError(e)) notifyQuotaExceeded();
-      allUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-    }
-  } else {
-    allUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-  }
+  const allUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
 
   const matchedUser = allUsers.find(u => {
     const userEmail = (u.email || '').toLowerCase();
@@ -772,19 +550,6 @@ export const loginUser = async (emailOrUser: string, passwordInput: string): Pro
       throw new Error("Invalid password. Please check your credentials.");
     }
 
-    const emailToAuth = matchedUser.email || searchEmail;
-    if (!isQuotaExceededState) {
-      try {
-        await signInWithEmailAndPassword(auth, emailToAuth, passwordInput);
-      } catch (e) {
-        try {
-          await createUserWithEmailAndPassword(auth, emailToAuth, passwordInput);
-        } catch (e2) {
-          // Continue
-        }
-      }
-    }
-
     return {
       id: matchedUser.id,
       email: matchedUser.email,
@@ -796,8 +561,8 @@ export const loginUser = async (emailOrUser: string, passwordInput: string): Pro
     };
   }
 
-  // Fallback: Check default hardcoded accounts
-  if (formattedInput === 'admin' && passwordInput === 'admin123') {
+  // Fallbacks
+  if (formattedInput === 'admin' && passwordInput === 'admin') {
     return {
       id: 'admin-default',
       email: 'admin@edubase.edu',
@@ -819,9 +584,6 @@ export const loginUser = async (emailOrUser: string, passwordInput: string): Pro
   throw new Error("Invalid credentials. Account not found in Authorized Users directory.");
 };
 
-/**
- * Add new user account (Faculty or Admin) into Firebase Cloud.
- */
 export const addUserToFirebase = async (userData: {
   name: string;
   email: string;
@@ -831,9 +593,9 @@ export const addUserToFirebase = async (userData: {
   password?: string;
 }): Promise<string> => {
   const email = userData.email.trim().toLowerCase();
-  const password = userData.password || (userData.role === 'admin' ? 'admin123' : 'faculty123');
-  
+  const password = userData.password || (userData.role === 'admin' ? 'admin' : 'faculty123');
   const customDocId = `usr-${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
   const newUser: AppUser = {
     id: customDocId,
     name: userData.name.trim(),
@@ -845,42 +607,14 @@ export const addUserToFirebase = async (userData: {
     createdAt: new Date().toISOString()
   };
 
-  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, [...cachedUsers, newUser]);
+  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+  const updated = [...cachedUsers.filter(u => u.id !== customDocId && u.email !== email), newUser];
+  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, updated);
+  notifyUsersSubscribers(updated);
 
-  if (isQuotaExceededState) return customDocId;
-
-  try {
-    const userDocRef = doc(db, USERS_COLLECTION, customDocId);
-    await setDoc(userDocRef, {
-      name: userData.name.trim(),
-      email: email,
-      role: userData.role,
-      department: userData.department || '',
-      phone: userData.phone || '',
-      password: password,
-      createdAt: new Date().toISOString()
-    });
-
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
-    } catch (e) {
-      console.warn("Firebase Auth account creation notice:", e);
-    }
-
-    return customDocId;
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return customDocId;
-    }
-    throw e;
-  }
+  return customDocId;
 };
 
-/**
- * Update an existing user account (Faculty or Admin) in Firebase Cloud.
- */
 export const updateUserInFirebase = async (
   userId: string,
   updatedFields: Partial<{
@@ -893,45 +627,17 @@ export const updateUserInFirebase = async (
     counsellorName?: string;
   }>
 ): Promise<void> => {
-  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, cachedUsers.map(u => u.id === userId ? { ...u, ...updatedFields } : u));
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const userDocRef = doc(db, USERS_COLLECTION, userId);
-    await updateDoc(userDocRef, {
-      ...updatedFields,
-      updatedAt: new Date().toISOString()
-    });
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return;
-    }
-    throw e;
-  }
+  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+  const updated = cachedUsers.map(u => u.id === userId ? { ...u, ...updatedFields } : u);
+  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, updated);
+  notifyUsersSubscribers(updated);
 };
 
-/**
- * Delete a user account (Faculty or Admin) from Firebase.
- */
 export const deleteUserFromFirebase = async (userId: string): Promise<void> => {
-  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, []);
-  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, cachedUsers.filter(u => u.id !== userId));
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const userDocRef = doc(db, USERS_COLLECTION, userId);
-    await deleteDoc(userDocRef);
-  } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      return;
-    }
-    throw e;
-  }
+  const cachedUsers = getLocalStorage<AppUser[]>(LOCAL_STORAGE_KEYS.USERS, DEFAULT_ACCOUNTS);
+  const updated = cachedUsers.filter(u => u.id !== userId);
+  setLocalStorage(LOCAL_STORAGE_KEYS.USERS, updated);
+  notifyUsersSubscribers(updated);
 };
 
 export const logoutUserFromFirebase = async (): Promise<void> => {
@@ -943,14 +649,15 @@ export const logoutUserFromFirebase = async (): Promise<void> => {
 };
 
 // ==========================================
-// 3. STUDENT REMARKS & COUNSELING NOTES
+// 3. STUDENT REMARKS & COUNSELING NOTES (Firebase Cloud Firestore)
 // ==========================================
 
+/**
+ * Real-time subscription to remarks for a specific student from Firebase Firestore.
+ */
 export const subscribeToRemarksForStudent = (studentId: string, onData: (remarks: StudentRemark[]) => void) => {
   const cachedAll = getLocalStorage<StudentRemark[]>(LOCAL_STORAGE_KEYS.REMARKS, []);
   onData(cachedAll.filter(r => r.studentId === studentId));
-
-  if (isQuotaExceededState) return () => {};
 
   try {
     const remarksColRef = collection(db, REMARKS_COLLECTION);
@@ -974,19 +681,23 @@ export const subscribeToRemarksForStudent = (studentId: string, onData: (remarks
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       onData(list);
     }, (err) => {
+      console.warn("Firebase remarks student listener notice:", err);
       if (isQuotaError(err)) notifyQuotaExceeded();
     });
   } catch (err) {
+    console.warn("Firebase remarks student subscription error:", err);
     if (isQuotaError(err)) notifyQuotaExceeded();
     return () => {};
   }
 };
 
+/**
+ * Real-time subscription to ALL student remarks stored in Firebase Firestore.
+ * Automatically synchronizes remarks with student records.
+ */
 export const subscribeToAllRemarks = (onData: (remarks: StudentRemark[]) => void) => {
   const cachedAll = getLocalStorage<StudentRemark[]>(LOCAL_STORAGE_KEYS.REMARKS, []);
   if (cachedAll.length > 0) onData(cachedAll);
-
-  if (isQuotaExceededState) return () => {};
 
   try {
     const remarksColRef = collection(db, REMARKS_COLLECTION);
@@ -1008,15 +719,47 @@ export const subscribeToAllRemarks = (onData: (remarks: StudentRemark[]) => void
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, list);
       onData(list);
+
+      // Synchronize latest remark to local student records
+      const latestRemarksByStudent = new Map<string, string>();
+      list.forEach(r => {
+        if (r.studentId && !latestRemarksByStudent.has(r.studentId)) {
+          latestRemarksByStudent.set(r.studentId, r.remark);
+        }
+        if (r.studentRegNo && !latestRemarksByStudent.has(r.studentRegNo)) {
+          latestRemarksByStudent.set(r.studentRegNo, r.remark);
+        }
+      });
+
+      const localStudents = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+      let hasStudentChange = false;
+      const updatedStudents = localStudents.map(s => {
+        const matchingRemark = latestRemarksByStudent.get(s.id) || (s.regNo ? latestRemarksByStudent.get(s.regNo) : undefined);
+        if (matchingRemark && s.remarks !== matchingRemark) {
+          hasStudentChange = true;
+          return { ...s, remarks: matchingRemark };
+        }
+        return s;
+      });
+
+      if (hasStudentChange) {
+        setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedStudents);
+        notifyStudentsSubscribers(updatedStudents);
+      }
     }, (err) => {
+      console.warn("Firebase all-remarks listener notice:", err);
       if (isQuotaError(err)) notifyQuotaExceeded();
     });
   } catch (err) {
+    console.warn("Firebase all-remarks subscription error:", err);
     if (isQuotaError(err)) notifyQuotaExceeded();
     return () => {};
   }
 };
 
+/**
+ * Add a new student remark / counseling note directly to Firebase Firestore.
+ */
 export const addRemarkToFirebase = async (remarkData: {
   studentId: string;
   studentRegNo: string;
@@ -1027,52 +770,109 @@ export const addRemarkToFirebase = async (remarkData: {
   remark: string;
 }): Promise<string> => {
   const cached = getLocalStorage<StudentRemark[]>(LOCAL_STORAGE_KEYS.REMARKS, []);
-  const tempId = `rem-local-${Date.now()}`;
+  const tempId = `rem-${Date.now()}`;
+  const nowIso = new Date().toISOString();
+  
   const newRemark: StudentRemark = {
     ...remarkData,
     id: tempId,
-    createdAt: new Date().toISOString()
+    createdAt: nowIso
   };
-  setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, [newRemark, ...cached]);
+  
+  const updatedRemarks = [newRemark, ...cached];
+  setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, updatedRemarks);
 
-  if (isQuotaExceededState) return tempId;
+  // Update remarks on local student record immediately
+  const localStudents = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+  const updatedStudents = localStudents.map(s => {
+    if (s.id === remarkData.studentId || (s.regNo && s.regNo === remarkData.studentRegNo)) {
+      return { ...s, remarks: remarkData.remark.trim() };
+    }
+    return s;
+  });
+  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedStudents);
+  notifyStudentsSubscribers(updatedStudents);
 
   try {
     const remarksColRef = collection(db, REMARKS_COLLECTION);
     const docRef = await addDoc(remarksColRef, {
-      ...remarkData,
-      createdAt: new Date().toISOString()
+      studentId: remarkData.studentId,
+      studentRegNo: remarkData.studentRegNo,
+      studentName: remarkData.studentName || '',
+      facultyId: remarkData.facultyId,
+      facultyName: remarkData.facultyName,
+      category: remarkData.category,
+      remark: remarkData.remark.trim(),
+      createdAt: nowIso
     });
     return docRef.id;
   } catch (e) {
+    console.warn("Error adding remark to Firebase:", e);
     if (isQuotaError(e)) {
       notifyQuotaExceeded();
-      return tempId;
     }
-    throw e;
+    return tempId;
   }
 };
 
+/**
+ * Delete a student remark from Firebase Firestore.
+ */
 export const deleteRemarkFromFirebase = async (remarkId: string): Promise<void> => {
   const cached = getLocalStorage<StudentRemark[]>(LOCAL_STORAGE_KEYS.REMARKS, []);
-  setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, cached.filter(r => r.id !== remarkId));
-
-  if (isQuotaExceededState) return;
+  const updated = cached.filter(r => r.id !== remarkId);
+  setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, updated);
 
   try {
     const docRef = doc(db, REMARKS_COLLECTION, remarkId);
     await deleteDoc(docRef);
   } catch (e) {
+    console.warn("Error deleting remark from Firebase:", e);
     if (isQuotaError(e)) {
       notifyQuotaExceeded();
-      return;
     }
-    throw e;
+  }
+};
+
+/**
+ * Update an existing student remark in Firebase Firestore.
+ */
+export const updateRemarkInFirebase = async (
+  remarkId: string, 
+  updatedText: string, 
+  category?: 'counseling' | 'discipline' | 'attendance' | 'academic' | 'general'
+): Promise<void> => {
+  const cached = getLocalStorage<StudentRemark[]>(LOCAL_STORAGE_KEYS.REMARKS, []);
+  const updated = cached.map(r => {
+    if (r.id === remarkId) {
+      return {
+        ...r,
+        remark: updatedText.trim(),
+        ...(category ? { category } : {})
+      };
+    }
+    return r;
+  });
+  setLocalStorage(LOCAL_STORAGE_KEYS.REMARKS, updated);
+
+  try {
+    const docRef = doc(db, REMARKS_COLLECTION, remarkId);
+    const payload: any = {
+      remark: updatedText.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    if (category) payload.category = category;
+    await updateDoc(docRef, payload);
+  } catch (e) {
+    console.warn("Error updating remark in Firebase:", e);
+    if (isQuotaError(e)) {
+      notifyQuotaExceeded();
+    }
   }
 };
 
 // ==========================================
-// 4. CONFIG & GOOGLE SHEET SYNC
+// 4. CONFIG & GOOGLE SHEET SYNC (Local Persistent Store)
 // ==========================================
 
 export const subscribeToConfig = (onData: (config: { 
@@ -1095,33 +895,14 @@ export const subscribeToConfig = (onData: (config: {
   });
   onData(cachedConfig);
 
-  if (isQuotaExceededState) return () => {};
+  const listener = (cfg: any) => {
+    onData(cfg);
+  };
+  configListeners.add(listener);
 
-  try {
-    const configRef = doc(db, CONFIG_DOC_PATH);
-    return onSnapshot(configRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const rawOffered: string[] = data.offeredCourses || ['B.Tech CSBS', 'B.Tech CSE(IoT)'];
-        const cleanOffered = Array.from(new Set(rawOffered.map(c => normalizeProgramBranch(c))))
-          .filter(c => c === 'B.Tech CSBS' || c === 'B.Tech CSE(IoT)');
-        const cfg = {
-          sheetUrl: data.sheetUrl || '',
-          lastUpdated: data.lastUpdated || '',
-          totalStudents: data.totalStudents || 0,
-          departmentName: data.departmentName || 'Department of CSBS & IoT',
-          offeredCourses: cleanOffered.length > 0 ? cleanOffered : ['B.Tech CSBS', 'B.Tech CSE(IoT)']
-        };
-        setLocalStorage(LOCAL_STORAGE_KEYS.CONFIG, cfg);
-        onData(cfg);
-      }
-    }, (err) => {
-      if (isQuotaError(err)) notifyQuotaExceeded();
-    });
-  } catch (err) {
-    if (isQuotaError(err)) notifyQuotaExceeded();
-    return () => {};
-  }
+  return () => {
+    configListeners.delete(listener);
+  };
 };
 
 export const saveSheetUrl = async (
@@ -1142,21 +923,7 @@ export const saveSheetUrl = async (
     totalStudents: extraConfig?.totalStudents ?? cachedConfig.totalStudents ?? 0
   };
   setLocalStorage(LOCAL_STORAGE_KEYS.CONFIG, newConfig);
-
-  if (isQuotaExceededState) return;
-
-  try {
-    const configRef = doc(db, CONFIG_DOC_PATH);
-    await setDoc(configRef, {
-      sheetUrl: url,
-      lastUpdated: new Date().toISOString(),
-      departmentName: newConfig.departmentName,
-      offeredCourses: newConfig.offeredCourses,
-      totalStudents: newConfig.totalStudents
-    }, { merge: true });
-  } catch (e) {
-    if (isQuotaError(e)) notifyQuotaExceeded();
-  }
+  notifyConfigSubscribers(newConfig);
 };
 
 export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => {
@@ -1176,8 +943,8 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
     
-    // Single overarching department name
-    let extractedDeptName = 'Department of CSBS & IoT';
+    // Department of CSBS & IoT
+    const extractedDeptName = 'Department of CSBS & IoT';
 
     const coursesFound = new Set<string>();
 
@@ -1243,7 +1010,6 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
       })
       .filter(isValidStudentRecord);
 
-    // Offered courses must strictly be B.Tech CSBS & B.Tech CSE(IoT)
     const offeredCoursesArray = ['B.Tech CSBS', 'B.Tech CSE(IoT)'];
 
     await saveStudentsToFirebase(parsedStudents, url);
@@ -1255,12 +1021,7 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
 
     return parsedStudents;
   } catch (e) {
-    if (isQuotaError(e)) {
-      notifyQuotaExceeded();
-      console.warn("Google Sheets sync notice: Firestore quota exceeded. Data saved to local cache.");
-    } else {
-      console.warn("Google Sheets sync notice:", e);
-    }
+    console.warn("Google Sheets sync error:", e);
     throw e;
   }
 };
