@@ -282,7 +282,10 @@ export const subscribeToStudents = (
           rGradeCount: data.rGradeCount ?? '',
           iGrade: data.iGrade || '',
           iGradeCredits: data.iGradeCredits ?? '',
-          subjectAttendance: data.subjectAttendance || {}
+          subjectAttendance: data.subjectAttendance || {},
+          remarks: data.remarks || '',
+          attendanceUpdatedAt: data.attendanceUpdatedAt || data.updatedAt || '',
+          updatedAt: data.updatedAt || ''
         };
       })
       .filter(isValidStudentRecord);
@@ -301,43 +304,60 @@ export const subscribeToStudents = (
   });
 };
 
+/**
+ * Partial Attendance Update - Strictly Preserves Remarks and Non-Attendance Fields
+ * Performs a partial update ({ merge: true }) in Firebase Firestore and updates attendanceUpdatedAt.
+ * CRITICAL: 'remarks' is NEVER deleted, overwritten, cleared, replaced, or set to null/empty.
+ */
 export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: string): Promise<void> => {
-  const cleanStudents = newStudents.filter(isValidStudentRecord).map(s => ({
-    ...s,
-    year: normalizeAcademicYear(s.year),
-    branch: normalizeProgramBranch(s.branch || '', s.regNo)
-  }));
+  const existingLocal = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+  const existingMap = new Map<string, Student>();
+  existingLocal.forEach(s => {
+    if (s.regNo) existingMap.set(s.regNo.trim().toUpperCase(), s);
+    if (s.id) existingMap.set(s.id, s);
+  });
+
+  const nowIso = new Date().toISOString();
+
+  const cleanStudents: Student[] = newStudents.filter(isValidStudentRecord).map(s => {
+    const key = (s.regNo || '').trim().toUpperCase();
+    const existing = existingMap.get(key) || existingMap.get(s.id);
+    
+    // CRITICAL: Preserve existing remarks from local cache if present
+    const preservedRemarks = (existing && existing.remarks) ? existing.remarks : (s.remarks || undefined);
+    const existingAttendanceUpdated = existing?.attendanceUpdatedAt;
+
+    return {
+      ...s,
+      year: normalizeAcademicYear(s.year),
+      branch: normalizeProgramBranch(s.branch || '', s.regNo),
+      ...(preservedRemarks ? { remarks: preservedRemarks } : {}),
+      attendanceUpdatedAt: nowIso
+    };
+  });
 
   setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, cleanStudents);
 
   if (isQuotaExceededState) {
-    console.warn("Quota exceeded: Saved students to local cache only.");
+    console.warn("Quota exceeded: Saved student attendance to local cache only.");
     return;
   }
 
   try {
-    const studentsColRef = collection(db, STUDENTS_COLLECTION);
-    const currentDocsSnap = await getDocs(studentsColRef);
-    
-    const oldDocIds = currentDocsSnap.docs.map(d => d.id);
-    for (let i = 0; i < oldDocIds.length; i += 400) {
-      const batch = writeBatch(db);
-      const chunk = oldDocIds.slice(i, i + 400);
-      chunk.forEach(id => {
-        batch.delete(doc(db, STUDENTS_COLLECTION, id));
-      });
-      await batch.commit();
-    }
-
+    // We do NOT delete existing docs. We perform partial merge updates so existing remarks and fields are strictly preserved.
     for (let i = 0; i < cleanStudents.length; i += 400) {
       const batch = writeBatch(db);
       const chunk = cleanStudents.slice(i, i + 400);
+
       chunk.forEach((student, idx) => {
         const docId = student.regNo 
           ? `st-${student.regNo.replace(/[^a-zA-Z0-9_-]/g, '_')}` 
           : `st-${i + idx}-${Date.now()}`;
         const docRef = doc(db, STUDENTS_COLLECTION, docId);
-        batch.set(docRef, {
+
+        // Attendance & Academic payload - ONLY attendance and student identity fields
+        // STRICT RULE: Do NOT include remarks: "", remarks: null, remarks: undefined
+        const updatePayload: Record<string, any> = {
           regNo: student.regNo || '',
           name: student.name || '',
           phone1: student.phone1 || '',
@@ -353,15 +373,26 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
           iGrade: student.iGrade || '',
           iGradeCredits: student.iGradeCredits ?? '',
           subjectAttendance: sanitizeSubjectAttendance(student.subjectAttendance),
-          updatedAt: new Date().toISOString()
-        });
+          attendanceUpdatedAt: nowIso,
+          updatedAt: nowIso
+        };
+
+        // If remarks is explicitly present on student object and non-empty, preserve it; otherwise DO NOT touch remarks
+        if (student.remarks && student.remarks.trim()) {
+          updatePayload.remarks = student.remarks.trim();
+        }
+
+        // Use { merge: true } to guarantee that existing remarks in Firebase Firestore are NEVER deleted or overwritten!
+        batch.set(docRef, updatePayload, { merge: true });
       });
+
       await batch.commit();
     }
 
     const configRef = doc(db, CONFIG_DOC_PATH);
     const configUpdate: any = {
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: nowIso,
+      attendanceUpdatedAt: nowIso,
       totalStudents: cleanStudents.length
     };
     if (sheetUrl !== undefined) {
@@ -369,16 +400,77 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
     }
     await setDoc(configRef, configUpdate, { merge: true });
 
-    // Automatically generate faculty user accounts for all unique counsellors in data
+    // Automatically sync faculty user accounts for any new counsellors found
     await syncCounsellorAccountsFromStudents(cleanStudents);
   } catch (error) {
     if (isQuotaError(error)) {
       notifyQuotaExceeded();
-      console.warn("Firestore Quota exceeded while saving students. Kept in local cache.");
+      console.warn("Firestore Quota exceeded while updating attendance. Maintained in local cache.");
       return;
     }
-    console.error("Error saving students to Firebase:", error);
+    console.error("Error updating student attendance in Firebase:", error);
     throw error;
+  }
+};
+
+/**
+ * Update ONLY attendance fields for a specific student, preserving remarks.
+ */
+export const updateStudentAttendanceInFirebase = async (
+  studentId: string,
+  attendanceData: {
+    attendance?: string;
+    subjectAttendance?: Record<string, string>;
+    cgpa?: string;
+    rGrade?: string;
+    rGradeCount?: string | number;
+    iGrade?: string;
+    iGradeCredits?: string | number;
+  }
+): Promise<void> => {
+  const nowIso = new Date().toISOString();
+  const localList = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+  const updatedList = localList.map(s => {
+    if (s.id === studentId || s.regNo === studentId) {
+      return {
+        ...s,
+        ...attendanceData,
+        attendanceUpdatedAt: nowIso
+      };
+    }
+    return s;
+  });
+  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, updatedList);
+
+  if (isQuotaExceededState) return;
+
+  try {
+    const docId = studentId.startsWith('st-') ? studentId : `st-${studentId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const studentDocRef = doc(db, STUDENTS_COLLECTION, docId);
+
+    const updatePayload: Record<string, any> = {
+      attendanceUpdatedAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    if (attendanceData.attendance !== undefined) updatePayload.attendance = attendanceData.attendance;
+    if (attendanceData.cgpa !== undefined) updatePayload.cgpa = attendanceData.cgpa;
+    if (attendanceData.rGrade !== undefined) updatePayload.rGrade = attendanceData.rGrade;
+    if (attendanceData.rGradeCount !== undefined) updatePayload.rGradeCount = attendanceData.rGradeCount;
+    if (attendanceData.iGrade !== undefined) updatePayload.iGrade = attendanceData.iGrade;
+    if (attendanceData.iGradeCredits !== undefined) updatePayload.iGradeCredits = attendanceData.iGradeCredits;
+    if (attendanceData.subjectAttendance) {
+      updatePayload.subjectAttendance = sanitizeSubjectAttendance(attendanceData.subjectAttendance);
+    }
+
+    // Partial update - remarks and other fields are strictly preserved
+    await setDoc(studentDocRef, updatePayload, { merge: true });
+  } catch (e) {
+    if (isQuotaError(e)) {
+      notifyQuotaExceeded();
+      return;
+    }
+    throw e;
   }
 };
 

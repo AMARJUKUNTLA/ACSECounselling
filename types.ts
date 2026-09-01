@@ -15,6 +15,9 @@ export interface Student {
   iGrade?: string;
   iGradeCredits?: string | number;
   subjectAttendance?: Record<string, string>;
+  remarks?: string;
+  attendanceUpdatedAt?: string;
+  updatedAt?: string;
 }
 
 export type UserRole = 'admin' | 'faculty';

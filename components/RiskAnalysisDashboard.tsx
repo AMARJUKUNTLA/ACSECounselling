@@ -337,6 +337,11 @@ const RiskAnalysisDashboard: React.FC<RiskAnalysisDashboardProps> = ({
                       ✅ GOOD STANDING
                     </span>
                   )}
+                  {student.attendanceUpdatedAt && (
+                    <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                      Last Attendance Updated: <span className="font-extrabold text-slate-700">{new Date(student.attendanceUpdatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </span>
+                  )}
                 </div>
 
                 <p className="text-xs font-bold text-slate-500">

@@ -588,8 +588,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <>
           {/* Action Toolbar */}
           <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 pl-2">
-              <span>{lastUpdated ? `Last synchronized: ${new Date(lastUpdated).toLocaleString()}` : 'Live real-time Firebase sync active'}</span>
+            <div className="flex items-center space-x-2 text-xs font-bold text-slate-500 pl-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>{lastUpdated ? `Last Attendance Updated: ${new Date(lastUpdated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : 'Live real-time Firebase sync active'}</span>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
