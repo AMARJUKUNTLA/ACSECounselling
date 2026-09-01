@@ -16,10 +16,17 @@ const App: React.FC = () => {
   const [sheetUrl, setSheetUrl] = useState('');
   const [lastUpdated, setLastUpdated] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(CloudDB.checkIsQuotaExceeded());
 
   // Auto-seed default accounts in Firestore on first render
   useEffect(() => {
     CloudDB.seedDefaultUsersIfEmpty();
+  }, []);
+
+  // Listen to quota changes
+  useEffect(() => {
+    const unsubQuota = CloudDB.subscribeToQuotaStatus(setIsQuotaExceeded);
+    return () => unsubQuota();
   }, []);
 
   // Save current user session
@@ -42,16 +49,24 @@ const App: React.FC = () => {
         setStudents(data);
         setLoading(false);
 
-        // If dataset is missing CGPA academic data or empty, automatically sync from user's Google Sheet URL
-        if (data.length === 0 || !data.some(s => s.cgpa)) {
+        // If dataset is missing CGPA academic data or empty, automatically sync from user's Google Sheet URL if quota permits
+        if (!CloudDB.checkIsQuotaExceeded() && (data.length === 0 || !data.some(s => s.cgpa))) {
           console.log("Syncing default Google Sheet data into Firebase Cloud...");
           CloudDB.fetchFromGoogleSheets(DEFAULT_SHEET_URL).catch(err => {
-            console.warn("Auto Google Sheet sync notice:", err);
+            if (CloudDB.isQuotaError(err)) {
+              console.warn("Firestore quota reached during sheet sync. Working from local cache.");
+            } else {
+              console.warn("Auto Google Sheet sync notice:", err);
+            }
           });
         }
       },
       (err) => {
-        console.error("Firebase connection error:", err);
+        if (CloudDB.isQuotaError(err)) {
+          console.warn("Firebase real-time subscription notice: operating in offline/cache mode due to quota.");
+        } else {
+          console.warn("Firebase connection notice:", err);
+        }
         setLoading(false);
       }
     );
@@ -174,6 +189,34 @@ const App: React.FC = () => {
 
         </div>
       </header>
+
+      {/* Cloud Quota Notice Banner */}
+      {isQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-amber-900 text-xs font-medium">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-center space-x-2.5">
+              <span className="flex h-2.5 w-2.5 relative shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+              <p className="leading-relaxed">
+                <strong className="font-black text-amber-950">Firestore Daily Quota Reached:</strong> EduNexus is operating in resilient <strong>Local Storage Cache Mode</strong>. All student records, remarks, and dashboards remain fully accessible. Cloud sync will automatically resume when the free-tier quota resets tomorrow.
+              </p>
+            </div>
+            <a 
+              href="https://console.firebase.google.com/project/lucid-slice-m5jvd/firestore/databases/ai-studio-studentdataexplo-78fdc733-4cf7-41a0-a355-b23e412c62ee/data?openUpgradeDialog=true" 
+              target="_blank" 
+              rel="noreferrer"
+              className="shrink-0 inline-flex items-center space-x-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition-all shadow-xs active:scale-95"
+            >
+              <span>Manage Quota in Console</span>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Main View Router based on Role */}
       <main className="max-w-7xl mx-auto px-4 pt-6 flex-1 w-full flex flex-col">

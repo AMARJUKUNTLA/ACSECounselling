@@ -10,7 +10,9 @@ import {
   addDoc,
   getDoc,
   query,
-  where
+  where,
+  disableNetwork,
+  enableNetwork
 } from 'firebase/firestore';
 import { 
   signInWithEmailAndPassword, 
@@ -29,11 +31,19 @@ const LOCAL_STORAGE_KEYS = {
   STUDENTS: 'edubase_local_students_cache',
   USERS: 'edubase_local_users_cache',
   REMARKS: 'edubase_local_remarks_cache',
-  CONFIG: 'edubase_local_config_cache'
+  CONFIG: 'edubase_local_config_cache',
+  QUOTA_EXCEEDED: 'edubase_quota_exceeded_flag'
 };
 
 // Quota State & Listeners
-let isQuotaExceededState = false;
+let isQuotaExceededState = (() => {
+  try {
+    return sessionStorage.getItem(LOCAL_STORAGE_KEYS.QUOTA_EXCEEDED) === 'true';
+  } catch (e) {
+    return false;
+  }
+})();
+
 const quotaListeners = new Set<(isExceeded: boolean) => void>();
 
 export const checkIsQuotaExceeded = () => isQuotaExceededState;
@@ -54,14 +64,21 @@ export const isQuotaError = (err: any): boolean => {
     str.includes('resource-exhausted') ||
     str.includes('quota limit exceeded') ||
     str.includes('quota exceeded') ||
-    str.includes('free tier database')
+    str.includes('free tier database') ||
+    str.includes('backoff delay')
   );
 };
 
-const notifyQuotaExceeded = () => {
+export const notifyQuotaExceeded = () => {
   if (!isQuotaExceededState) {
     isQuotaExceededState = true;
-    console.warn("⚠️ Firestore Quota Exceeded detected. Switched to Local Cache mode.");
+    try {
+      sessionStorage.setItem(LOCAL_STORAGE_KEYS.QUOTA_EXCEEDED, 'true');
+    } catch (e) {}
+    console.warn("⚠️ Firestore Quota Exceeded. Disabling Firestore network to prevent retries and backoff delays.");
+    try {
+      disableNetwork(db).catch(() => {});
+    } catch (e) {}
     quotaListeners.forEach(cb => cb(true));
   }
 };
@@ -88,10 +105,51 @@ const setLocalStorage = <T>(key: string, data: T): void => {
  * Normalizes program / branch names.
  * Offered programs in Dept. of CSBS & IoT: B.Tech CSBS and B.Tech CSE(IoT).
  */
-export const normalizeProgramBranch = (branchInput: string): string => {
+export const normalizeProgramBranch = (branchInput: string, regNo?: string): string => {
   if (!branchInput || !branchInput.trim() || branchInput.trim() === 'Not Assigned') return 'B.Tech CSBS';
   const trimmed = branchInput.trim();
   const lower = trimmed.toLowerCase();
+
+  // If IoT is explicitly indicated without CSBS
+  if (
+    (lower.includes('iot') || lower.includes('internet of things')) && 
+    !lower.includes('csbs') && 
+    !lower.includes('business')
+  ) {
+    return 'B.Tech CSE(IoT)';
+  }
+
+  // If CSBS is explicitly indicated without IoT
+  if (
+    (lower.includes('csbs') || lower.includes('business')) && 
+    !lower.includes('iot') && 
+    !lower.includes('internet of things')
+  ) {
+    return 'B.Tech CSBS';
+  }
+
+  // If input contains combined/lateral descriptors (e.g. "B.Tech CSBS & CSE (IoT) (Combined/Lateral)", "Combined/Lateral", "CSBS & IoT")
+  if (
+    lower.includes('combined') || 
+    lower.includes('lateral') || 
+    lower.includes('csbs & iot') || 
+    lower.includes('csbs & cse') || 
+    lower.includes('csbs/iot') || 
+    lower.includes('iot/csbs')
+  ) {
+    // Check if regNo or string specifies branch
+    if (regNo) {
+      const cleanReg = regNo.toUpperCase();
+      if (cleanReg.includes('49') || cleanReg.includes('IOT')) {
+        return 'B.Tech CSE(IoT)';
+      }
+      if (cleanReg.includes('32') || cleanReg.includes('CB') || cleanReg.includes('CSBS')) {
+        return 'B.Tech CSBS';
+      }
+    }
+    // Default to B.Tech CSBS
+    return 'B.Tech CSBS';
+  }
 
   if (
     lower === 'csbs' || 
@@ -120,33 +178,60 @@ export const normalizeProgramBranch = (branchInput: string): string => {
     return 'B.Tech CSE(IoT)';
   }
 
-  if (lower === 'csbs & iot' || lower === 'csbs/iot' || lower === 'iot/csbs' || lower.includes('csbs & iot')) {
-    return 'B.Tech CSBS & CSE(IoT)';
-  }
-
-  return trimmed;
+  return 'B.Tech CSBS';
 };
 
 /**
  * Returns the overarching Department name for a given program or branch.
- * Department name: 'Dept. of CSBS & IoT' for offered programs B.Tech CSBS and B.Tech CSE(IoT).
+ * Department name: 'Department of CSBS & IoT' as a single department for offered programs B.Tech CSBS and B.Tech CSE(IoT).
  */
 export const getDepartmentForBranch = (branchOrDept: string): string => {
   if (!branchOrDept || !branchOrDept.trim() || branchOrDept === 'Not Assigned' || branchOrDept === 'General Faculty') {
-    return 'Dept. of CSBS & IoT';
+    return 'Department of CSBS & IoT';
   }
   const program = normalizeProgramBranch(branchOrDept);
   const lower = program.toLowerCase();
 
   if (lower.includes('csbs') || lower.includes('iot') || lower.includes('cse')) {
-    return 'Dept. of CSBS & IoT';
+    return 'Department of CSBS & IoT';
   }
 
   if (lower.startsWith('dept') || lower.startsWith('department')) {
     return branchOrDept;
   }
 
-  return `Dept. of ${program}`;
+  return `Department of ${program}`;
+};
+
+export const normalizeAcademicYear = (yearInput?: string): string => {
+  if (!yearInput) return '2';
+  const trimmed = String(yearInput).trim().toUpperCase();
+  if (trimmed === '2' || trimmed === '2ND' || trimmed === 'II' || trimmed === 'YEAR 2' || trimmed === '2ND YEAR' || trimmed === 'SECOND' || trimmed === 'E2') return '2';
+  if (trimmed === '3' || trimmed === '3RD' || trimmed === 'III' || trimmed === 'YEAR 3' || trimmed === '3RD YEAR' || trimmed === 'THIRD' || trimmed === 'E3') return '3';
+  if (trimmed === '4' || trimmed === '4TH' || trimmed === 'IV' || trimmed === 'YEAR 4' || trimmed === '4TH YEAR' || trimmed === 'FOURTH' || trimmed === 'E4') return '4';
+  const match = trimmed.match(/[2-4]/);
+  if (match) return match[0];
+  return '2';
+};
+
+export const isValidStudentRecord = (s: { regNo?: string; name?: string; year?: string; branch?: string } | null | undefined): boolean => {
+  if (!s) return false;
+  const regNo = (s.regNo || '').trim().toLowerCase();
+  const name = (s.name || '').trim().toLowerCase();
+  const year = (s.year || '').trim().toLowerCase();
+  const branch = (s.branch || '').trim().toLowerCase();
+
+  // Filter out repeated header rows from concatenated sheets/files
+  if ((regNo.includes('reg') && (regNo.includes('no') || regNo.includes('.'))) || regNo === 'sid' || regNo === 'roll no' || regNo === 'registration') return false;
+  if (name.includes('student name') || name === 'name' || name === 'sname' || name === 'student' || name === 'stuname') return false;
+  if (year === 'year' || year === 'academic year' || year === 'yr' || year === 'class') return false;
+  if (branch === 'branch' || branch === 'department name' || branch === 'dept' || branch === 'dept name') return false;
+
+  // Filter out total, summary, or completely blank rows
+  if (regNo === 'total' || name === 'total' || name === 'grand total' || name === 'count') return false;
+  if (!regNo && !name) return false;
+
+  return true;
 };
 
 export const sanitizeSubjectAttendance = (raw?: Record<string, string>): Record<string, string> => {
@@ -169,35 +254,39 @@ export const subscribeToStudents = (
   onData: (students: Student[]) => void, 
   onError?: (err: Error) => void
 ) => {
-  // Immediately serve cached students if present
-  const cachedStudents = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+  // Immediately serve cached students if present (filtered of bad header rows)
+  const cachedStudents = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []).filter(isValidStudentRecord);
   if (cachedStudents.length > 0) {
     onData(cachedStudents);
   }
 
   const studentsColRef = collection(db, STUDENTS_COLLECTION);
   return onSnapshot(studentsColRef, (snapshot) => {
-    const studentsList: Student[] = snapshot.docs.map(docSnap => {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        regNo: data.regNo || '',
-        name: data.name || '',
-        phone1: data.phone1 || '',
-        phone2: data.phone2 || '',
-        counsellor: data.counsellor || '',
-        year: data.year || '',
-        section: data.section || '',
-        branch: normalizeProgramBranch(data.branch || ''),
-        cgpa: data.cgpa || '',
-        attendance: data.attendance || '',
-        rGrade: data.rGrade || '',
-        rGradeCount: data.rGradeCount ?? '',
-        iGrade: data.iGrade || '',
-        iGradeCredits: data.iGradeCredits ?? '',
-        subjectAttendance: data.subjectAttendance || {}
-      };
-    });
+    const studentsList: Student[] = snapshot.docs
+      .map(docSnap => {
+        const data = docSnap.data();
+        const regNo = data.regNo || '';
+        return {
+          id: docSnap.id,
+          regNo,
+          name: data.name || '',
+          phone1: data.phone1 || '',
+          phone2: data.phone2 || '',
+          counsellor: data.counsellor || '',
+          year: normalizeAcademicYear(data.year),
+          section: data.section || '',
+          branch: normalizeProgramBranch(data.branch || '', regNo),
+          cgpa: data.cgpa || '',
+          attendance: data.attendance || '',
+          rGrade: data.rGrade || '',
+          rGradeCount: data.rGradeCount ?? '',
+          iGrade: data.iGrade || '',
+          iGradeCredits: data.iGradeCredits ?? '',
+          subjectAttendance: data.subjectAttendance || {}
+        };
+      })
+      .filter(isValidStudentRecord);
+
     studentsList.sort((a, b) => a.name.localeCompare(b.name));
     setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, studentsList);
     onData(studentsList);
@@ -206,14 +295,20 @@ export const subscribeToStudents = (
     if (isQuotaError(error)) {
       notifyQuotaExceeded();
     }
-    const fallback = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []);
+    const fallback = getLocalStorage<Student[]>(LOCAL_STORAGE_KEYS.STUDENTS, []).filter(isValidStudentRecord);
     onData(fallback);
     if (onError) onError(error);
   });
 };
 
 export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: string): Promise<void> => {
-  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, newStudents);
+  const cleanStudents = newStudents.filter(isValidStudentRecord).map(s => ({
+    ...s,
+    year: normalizeAcademicYear(s.year),
+    branch: normalizeProgramBranch(s.branch || '', s.regNo)
+  }));
+
+  setLocalStorage(LOCAL_STORAGE_KEYS.STUDENTS, cleanStudents);
 
   if (isQuotaExceededState) {
     console.warn("Quota exceeded: Saved students to local cache only.");
@@ -234,9 +329,9 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
       await batch.commit();
     }
 
-    for (let i = 0; i < newStudents.length; i += 400) {
+    for (let i = 0; i < cleanStudents.length; i += 400) {
       const batch = writeBatch(db);
-      const chunk = newStudents.slice(i, i + 400);
+      const chunk = cleanStudents.slice(i, i + 400);
       chunk.forEach((student, idx) => {
         const docId = student.regNo 
           ? `st-${student.regNo.replace(/[^a-zA-Z0-9_-]/g, '_')}` 
@@ -248,9 +343,9 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
           phone1: student.phone1 || '',
           phone2: student.phone2 || '',
           counsellor: student.counsellor || '',
-          year: student.year || '',
+          year: normalizeAcademicYear(student.year),
           section: student.section || '',
-          branch: normalizeProgramBranch(student.branch || ''),
+          branch: normalizeProgramBranch(student.branch || '', student.regNo),
           cgpa: student.cgpa || '',
           attendance: student.attendance || '',
           rGrade: student.rGrade || '',
@@ -267,7 +362,7 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
     const configRef = doc(db, CONFIG_DOC_PATH);
     const configUpdate: any = {
       lastUpdated: new Date().toISOString(),
-      totalStudents: newStudents.length
+      totalStudents: cleanStudents.length
     };
     if (sheetUrl !== undefined) {
       configUpdate.sheetUrl = sheetUrl;
@@ -275,7 +370,7 @@ export const saveStudentsToFirebase = async (newStudents: Student[], sheetUrl?: 
     await setDoc(configRef, configUpdate, { merge: true });
 
     // Automatically generate faculty user accounts for all unique counsellors in data
-    await syncCounsellorAccountsFromStudents(newStudents);
+    await syncCounsellorAccountsFromStudents(cleanStudents);
   } catch (error) {
     if (isQuotaError(error)) {
       notifyQuotaExceeded();
@@ -427,7 +522,7 @@ export const seedDefaultUsersIfEmpty = async () => {
         email: 'faculty@edubase.edu',
         name: 'Dr. Rahul Sharma',
         role: 'faculty',
-        department: 'Dept. of CSBS & IoT',
+        department: 'Department of CSBS & IoT',
         password: 'faculty123',
         createdAt: new Date().toISOString()
       });
@@ -490,7 +585,7 @@ export const syncCounsellorAccountsFromStudents = async (studentsList?: Student[
       const counsellorStudents = targetStudents.filter(s => (s.counsellor || '').trim().toLowerCase() === cName.toLowerCase());
       const branches = Array.from(new Set(counsellorStudents.map(s => normalizeProgramBranch(s.branch || '')).filter(Boolean)));
       const depts = Array.from(new Set(branches.map(b => getDepartmentForBranch(b))));
-      const counsellorDept = depts.length > 0 ? (depts.length === 1 ? depts[0] : depts.join(', ')) : 'Dept. of CSBS & IoT';
+      const counsellorDept = depts.length > 0 ? (depts.length === 1 ? depts[0] : depts.join(', ')) : 'Department of CSBS & IoT';
 
       // Check if user already exists with matching name or email
       const existingUser = existingUsers.find(u => 
@@ -537,7 +632,11 @@ export const syncCounsellorAccountsFromStudents = async (studentsList?: Student[
 
     return createdCount;
   } catch (err) {
-    console.error("Error syncing counsellor accounts:", err);
+    if (isQuotaError(err)) {
+      notifyQuotaExceeded();
+    } else {
+      console.warn("Notice syncing counsellor accounts:", err);
+    }
     return 0;
   }
 };
@@ -621,7 +720,7 @@ export const loginUser = async (emailOrUser: string, passwordInput: string): Pro
       email: 'faculty@edubase.edu',
       name: 'Dr. Rahul Sharma',
       role: 'faculty',
-      department: 'Dept. of CSBS & IoT'
+      department: 'Department of CSBS & IoT'
     };
   }
 
@@ -648,7 +747,7 @@ export const addUserToFirebase = async (userData: {
     name: userData.name.trim(),
     email: email,
     role: userData.role,
-    department: userData.department || 'Dept. of CSBS & IoT',
+    department: userData.department || 'Department of CSBS & IoT',
     phone: userData.phone || '',
     password: password,
     createdAt: new Date().toISOString()
@@ -899,7 +998,7 @@ export const subscribeToConfig = (onData: (config: {
     offeredCourses?: string[];
   }>(LOCAL_STORAGE_KEYS.CONFIG, { 
     sheetUrl: '',
-    departmentName: 'Dept. of CSBS & IoT',
+    departmentName: 'Department of CSBS & IoT',
     offeredCourses: ['B.Tech CSBS', 'B.Tech CSE(IoT)']
   });
   onData(cachedConfig);
@@ -911,12 +1010,15 @@ export const subscribeToConfig = (onData: (config: {
     return onSnapshot(configRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        const rawOffered: string[] = data.offeredCourses || ['B.Tech CSBS', 'B.Tech CSE(IoT)'];
+        const cleanOffered = Array.from(new Set(rawOffered.map(c => normalizeProgramBranch(c))))
+          .filter(c => c === 'B.Tech CSBS' || c === 'B.Tech CSE(IoT)');
         const cfg = {
           sheetUrl: data.sheetUrl || '',
           lastUpdated: data.lastUpdated || '',
           totalStudents: data.totalStudents || 0,
-          departmentName: data.departmentName || 'Dept. of CSBS & IoT',
-          offeredCourses: data.offeredCourses || ['B.Tech CSBS', 'B.Tech CSE(IoT)']
+          departmentName: data.departmentName || 'Department of CSBS & IoT',
+          offeredCourses: cleanOffered.length > 0 ? cleanOffered : ['B.Tech CSBS', 'B.Tech CSE(IoT)']
         };
         setLocalStorage(LOCAL_STORAGE_KEYS.CONFIG, cfg);
         onData(cfg);
@@ -935,12 +1037,16 @@ export const saveSheetUrl = async (
   extraConfig?: { departmentName?: string; offeredCourses?: string[]; totalStudents?: number }
 ): Promise<void> => {
   const cachedConfig = getLocalStorage<any>(LOCAL_STORAGE_KEYS.CONFIG, {});
+  const rawOffered: string[] = extraConfig?.offeredCourses || cachedConfig.offeredCourses || ['B.Tech CSBS', 'B.Tech CSE(IoT)'];
+  const cleanOffered = Array.from(new Set(rawOffered.map((c: string) => normalizeProgramBranch(c))))
+    .filter(c => c === 'B.Tech CSBS' || c === 'B.Tech CSE(IoT)');
+
   const newConfig = { 
     ...cachedConfig, 
     sheetUrl: url, 
     lastUpdated: new Date().toISOString(),
-    departmentName: extraConfig?.departmentName || cachedConfig.departmentName || 'Dept. of CSBS & IoT',
-    offeredCourses: extraConfig?.offeredCourses || cachedConfig.offeredCourses || ['B.Tech CSBS', 'B.Tech CSE(IoT)'],
+    departmentName: extraConfig?.departmentName || cachedConfig.departmentName || 'Department of CSBS & IoT',
+    offeredCourses: cleanOffered.length > 0 ? cleanOffered : ['B.Tech CSBS', 'B.Tech CSE(IoT)'],
     totalStudents: extraConfig?.totalStudents ?? cachedConfig.totalStudents ?? 0
   };
   setLocalStorage(LOCAL_STORAGE_KEYS.CONFIG, newConfig);
@@ -978,74 +1084,75 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
     
-    // Check if headers or spreadsheet metadata contain custom department name
-    let extractedDeptName = 'Dept. of CSBS & IoT';
-    const deptHeaderVal = headers.find(h => h.includes('dept') || h.includes('department'));
-    if (deptHeaderVal) {
-      extractedDeptName = 'Dept. of CSBS & IoT';
-    }
+    // Single overarching department name
+    let extractedDeptName = 'Department of CSBS & IoT';
 
     const coursesFound = new Set<string>();
 
-    const parsedStudents: Student[] = lines.slice(1).filter(line => line.trim()).map((line, index) => {
-      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
-      const row: any = {};
-      headers.forEach((header, i) => {
-        row[header] = values[i];
-      });
+    const parsedStudents: Student[] = lines
+      .slice(1)
+      .filter(line => line.trim())
+      .map((line, index) => {
+        const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+        const row: any = {};
+        headers.forEach((header, i) => {
+          row[header] = values[i];
+        });
 
-      const getVal = (keys: string[]) => {
-        for (const key of keys) {
-          if (row[key] !== undefined && row[key] !== '') return row[key];
-        }
-        return '';
-      };
-
-      const subjectAttendance: Record<string, string> = {};
-      const knownKeys = new Set([
-        'reg.no', 'reg no', 'student name', 'year', 'section', 'cgpa', 'r-grade', 
-        'no.of r-grade courses', 'i-grade', 'no.of credits in i-grade', 'counsellor name', 
-        'sphno', 'fphno', 'attendance', 'sid', 'registration', 'regno', 'rno', 'rollno', 'htno',
-        'sname', 'name', 'stuname', 'full name', 'phone1', 'phone2', 'cname', 'counsellor', 'mentor', 'branch', 'dept'
-      ]);
-      headers.forEach((h, i) => {
-        const cleanHeader = (h || '').trim().toLowerCase();
-        if (cleanHeader && !knownKeys.has(cleanHeader) && values[i] !== undefined && values[i] !== '') {
-          const keyUpper = (h || '').trim().toUpperCase().replace(/[\.~*\[\]]/g, '_');
-          if (keyUpper && keyUpper.length > 0) {
-            subjectAttendance[keyUpper] = values[i].trim();
+        const getVal = (keys: string[]) => {
+          for (const key of keys) {
+            if (row[key] !== undefined && row[key] !== '') return row[key];
           }
-        }
-      });
+          return '';
+        };
 
-      const rawBranch = getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name']) || 'CSBS';
-      const normBranch = normalizeProgramBranch(rawBranch);
-      coursesFound.add(normBranch);
+        const subjectAttendance: Record<string, string> = {};
+        const knownKeys = new Set([
+          'reg.no', 'reg no', 'student name', 'year', 'section', 'cgpa', 'r-grade', 
+          'no.of r-grade courses', 'i-grade', 'no.of credits in i-grade', 'counsellor name', 
+          'sphno', 'fphno', 'attendance', 'sid', 'registration', 'regno', 'rno', 'rollno', 'htno',
+          'sname', 'name', 'stuname', 'full name', 'phone1', 'phone2', 'cname', 'counsellor', 'mentor', 'branch', 'dept'
+        ]);
+        headers.forEach((h, i) => {
+          const cleanHeader = (h || '').trim().toLowerCase();
+          if (cleanHeader && !knownKeys.has(cleanHeader) && values[i] !== undefined && values[i] !== '') {
+            const keyUpper = (h || '').trim().toUpperCase().replace(/[\.~*\[\]]/g, '_');
+            if (keyUpper && keyUpper.length > 0) {
+              subjectAttendance[keyUpper] = values[i].trim();
+            }
+          }
+        });
 
-      return {
-        regNo: getVal(['sid', 'reg.no', 'reg no', 'registration', 'regno', 'rno', 'rollno', 'roll no', 'htno', 'hallticket']),
-        name: getVal(['sname', 'name', 'student name', 'stuname', 'full name']),
-        phone1: getVal(['sphno', 'phone1', 'student phone', 'phone 1', 'student mobile', 'mobile']),
-        phone2: getVal(['fphno', 'phone2', 'father phone', 'parent phone', 'phone 2', 'father mobile', 'parent mobile']),
-        counsellor: getVal(['cname', 'counsellor name', 'counante', 'counsellor', 'mentor', 'faculty advisor', 'guide']),
-        year: getVal(['year', 'academic year', 'yr', 'class']),
-        section: getVal(['section', 'sec']),
-        branch: normBranch,
-        cgpa: getVal(['cgpa', 'gpa', 'cumulative gpa']),
-        attendance: getVal(['attendance', 'att', 'attendance %', 'overall attendance']),
-        rGrade: getVal(['r-grade', 'rgrade', 'r grade']),
-        rGradeCount: getVal(['no.of r-grade courses', 'rgradecount', 'no of r grade courses', 'r-grade count']),
-        iGrade: getVal(['i-grade', 'igrade', 'i grade']),
-        iGradeCredits: getVal(['no.of credits in i-grade', 'igradecredits', 'no of credits in i grade', 'i-grade credits']),
-        subjectAttendance,
-        id: `gs-${index}`
-      };
-    });
+        const rawBranch = getVal(['branch', 'dept', 'department', 'dep', 'br', 'stream', 'course', 'discipline', 'department name', 'dept name', 'branch name']) || 'CSBS';
+        const regNoVal = getVal(['sid', 'reg.no', 'reg no', 'registration', 'regno', 'rno', 'rollno', 'roll no', 'htno', 'hallticket']);
+        const rawYear = getVal(['year', 'academic year', 'yr', 'class']);
+        const normBranch = normalizeProgramBranch(rawBranch, regNoVal);
+        const normYear = normalizeAcademicYear(rawYear);
+        coursesFound.add(normBranch);
 
-    // Ensure offered courses contains both B.Tech CSBS & B.Tech CSE(IoT)
-    coursesFound.add('B.Tech CSBS');
-    coursesFound.add('B.Tech CSE(IoT)');
-    const offeredCoursesArray = Array.from(coursesFound).sort();
+        return {
+          regNo: regNoVal,
+          name: getVal(['sname', 'name', 'student name', 'stuname', 'full name']),
+          phone1: getVal(['sphno', 'phone1', 'student phone', 'phone 1', 'student mobile', 'mobile']),
+          phone2: getVal(['fphno', 'phone2', 'father phone', 'parent phone', 'phone 2', 'father mobile', 'parent mobile']),
+          counsellor: getVal(['cname', 'counsellor name', 'counante', 'counsellor', 'mentor', 'faculty advisor', 'guide']),
+          year: normYear,
+          section: getVal(['section', 'sec']) || 'A',
+          branch: normBranch,
+          cgpa: getVal(['cgpa', 'gpa', 'cumulative gpa']),
+          attendance: getVal(['attendance', 'att', 'attendance %', 'overall attendance']),
+          rGrade: getVal(['r-grade', 'rgrade', 'r grade']),
+          rGradeCount: getVal(['no.of r-grade courses', 'rgradecount', 'no of r grade courses', 'r-grade count']),
+          iGrade: getVal(['i-grade', 'igrade', 'i grade']),
+          iGradeCredits: getVal(['no.of credits in i-grade', 'igradecredits', 'no of credits in i grade', 'i-grade credits']),
+          subjectAttendance,
+          id: `gs-${index}`
+        };
+      })
+      .filter(isValidStudentRecord);
+
+    // Offered courses must strictly be B.Tech CSBS & B.Tech CSE(IoT)
+    const offeredCoursesArray = ['B.Tech CSBS', 'B.Tech CSE(IoT)'];
 
     await saveStudentsToFirebase(parsedStudents, url);
     await saveSheetUrl(url, {
@@ -1056,7 +1163,12 @@ export const fetchFromGoogleSheets = async (url: string): Promise<Student[]> => 
 
     return parsedStudents;
   } catch (e) {
-    console.error("Google Sheets sync error:", e);
+    if (isQuotaError(e)) {
+      notifyQuotaExceeded();
+      console.warn("Google Sheets sync notice: Firestore quota exceeded. Data saved to local cache.");
+    } else {
+      console.warn("Google Sheets sync notice:", e);
+    }
     throw e;
   }
 };

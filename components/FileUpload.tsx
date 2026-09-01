@@ -1,6 +1,7 @@
 
 import React, { useRef } from 'react';
 import { Student } from '../types';
+import { normalizeProgramBranch, normalizeAcademicYear, isValidStudentRecord } from '../services/databaseService';
 
 interface FileUploadProps {
   onDataLoaded: (data: Student[]) => void;
@@ -29,28 +30,34 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded, isLoading }) => {
         const worksheet = workbook.Sheets[firstSheetName];
         const results = XLSX.utils.sheet_to_json(worksheet);
 
-        const mappedData: Student[] = results.map((row: any, index: number) => {
-          const getVal = (keys: string[]) => {
-            for (const key of keys) {
-              if (row[key] !== undefined) return String(row[key]).trim();
-              if (row[key.toLowerCase()] !== undefined) return String(row[key.toLowerCase()]).trim();
-              if (row[key.toUpperCase()] !== undefined) return String(row[key.toUpperCase()]).trim();
-            }
-            return '';
-          };
+        const mappedData: Student[] = results
+          .map((row: any, index: number) => {
+            const getVal = (keys: string[]) => {
+              for (const key of keys) {
+                if (row[key] !== undefined) return String(row[key]).trim();
+                if (row[key.toLowerCase()] !== undefined) return String(row[key.toLowerCase()]).trim();
+                if (row[key.toUpperCase()] !== undefined) return String(row[key.toUpperCase()]).trim();
+              }
+              return '';
+            };
 
-          return {
-            regNo: getVal(['SID', 'reg no', 'Reg No', 'Registration']),
-            name: getVal(['SNAME', 'name', 'Name', 'Student Name']),
-            phone1: getVal(['SPHNO', 'phone1', 'Phone1', 'Student Phone']),
-            phone2: getVal(['FPHNO', 'phone2', 'Phone2', 'Father Phone', 'Parent Phone']),
-            counsellor: getVal(['CNAME', 'counante', 'Counante', 'counsellor', 'Counsellor']),
-            year: getVal(['YEAR', 'year', 'Year', 'Academic Year']),
-            section: getVal(['SECTION', 'section', 'Section', 'Sec']),
-            branch: getVal(['BRANCH', 'branch', 'Branch', 'Dept', 'Department']),
-            id: `student-${index}-${Date.now()}`
-          };
-        });
+            const regNoVal = getVal(['SID', 'reg no', 'Reg No', 'Registration', 'reg.no', 'rno', 'rollno']);
+            const rawBranch = getVal(['BRANCH', 'branch', 'Branch', 'Dept', 'Department']);
+            const rawYear = getVal(['YEAR', 'year', 'Year', 'Academic Year', 'yr']);
+
+            return {
+              regNo: regNoVal,
+              name: getVal(['SNAME', 'name', 'Name', 'Student Name']),
+              phone1: getVal(['SPHNO', 'phone1', 'Phone1', 'Student Phone']),
+              phone2: getVal(['FPHNO', 'phone2', 'Phone2', 'Father Phone', 'Parent Phone']),
+              counsellor: getVal(['CNAME', 'counante', 'Counante', 'counsellor', 'Counsellor']),
+              year: normalizeAcademicYear(rawYear),
+              section: getVal(['SECTION', 'section', 'Section', 'Sec']) || 'A',
+              branch: normalizeProgramBranch(rawBranch, regNoVal),
+              id: `student-${index}-${Date.now()}`
+            };
+          })
+          .filter(isValidStudentRecord);
 
         onDataLoaded(mappedData);
         if (fileInputRef.current) fileInputRef.current.value = '';

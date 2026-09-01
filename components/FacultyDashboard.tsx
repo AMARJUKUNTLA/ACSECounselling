@@ -3,7 +3,7 @@ import { Student, AppUser } from '../types';
 import StudentCard from './StudentCard';
 import RiskAnalysisDashboard from './RiskAnalysisDashboard';
 import CounsellorStatsModal from './CounsellorStatsModal';
-import { normalizeProgramBranch } from '../services/databaseService';
+import { normalizeProgramBranch, normalizeAcademicYear, isValidStudentRecord } from '../services/databaseService';
 
 interface FacultyDashboardProps {
   students: Student[];
@@ -23,12 +23,16 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [selectedCounsellorModalName, setSelectedCounsellorModalName] = useState<string | null>(null);
 
+  const validStudents = useMemo(() => {
+    return (students || []).filter(isValidStudentRecord);
+  }, [students]);
+
   // Extract unique programs/branches
   const branches = useMemo(() => {
     const set = new Set<string>();
-    students.forEach(s => {
+    validStudents.forEach(s => {
       if (s.branch) {
-        set.add(normalizeProgramBranch(s.branch));
+        set.add(normalizeProgramBranch(s.branch, s.regNo));
       }
     });
     if (set.size === 0) {
@@ -36,43 +40,50 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
       set.add('B.Tech CSE(IoT)');
     }
     return Array.from(set).sort();
-  }, [students]);
+  }, [validStudents]);
 
   const years = useMemo(() => {
     const set = new Set<string>();
-    students.forEach(s => {
-      if (s.year) set.add(s.year);
+    validStudents.forEach(s => {
+      const yr = normalizeAcademicYear(s.year);
+      if (yr && yr !== '1') set.add(yr);
     });
+    if (set.size === 0) {
+      set.add('2');
+      set.add('3');
+      set.add('4');
+    }
     return Array.from(set).sort();
-  }, [students]);
+  }, [validStudents]);
 
   // Extract unique counsellors from students dataset
   const counsellorNames = useMemo(() => {
     const map = new Map<string, number>();
-    students.forEach(s => {
+    validStudents.forEach(s => {
       if (s.counsellor) {
         const cName = s.counsellor.trim();
         map.set(cName, (map.get(cName) || 0) + 1);
       }
     });
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [students]);
+  }, [validStudents]);
 
   // Check if currentUser is a counsellor in the dataset
   const myAssignedCount = useMemo(() => {
     if (!currentUser.name) return 0;
     const target = currentUser.name.trim().toLowerCase();
-    return students.filter(s => {
+    return validStudents.filter(s => {
       if (!s.counsellor) return false;
       const sc = s.counsellor.trim().toLowerCase();
       return sc === target || target.includes(sc) || sc.includes(target);
     }).length;
-  }, [students, currentUser.name]);
+  }, [validStudents, currentUser.name]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
-    return students.filter(s => {
+    return validStudents.filter(s => {
       const q = searchQuery.toLowerCase().trim();
+      const yr = normalizeAcademicYear(s.year);
       const matchesQuery = !q || 
         s.name.toLowerCase().includes(q) || 
         s.regNo.toLowerCase().includes(q) ||
@@ -81,15 +92,15 @@ const FacultyDashboard: React.FC<FacultyDashboardProps> = ({
         (s.phone2 && s.phone2.includes(q)) ||
         (s.branch && s.branch.toLowerCase().includes(q)) ||
         (s.section && s.section.toLowerCase().includes(q)) ||
-        (s.year && s.year.toLowerCase().includes(q));
+        yr.toLowerCase().includes(q);
 
-      const normBranch = normalizeProgramBranch(s.branch || '');
+      const normBranch = normalizeProgramBranch(s.branch || '', s.regNo);
       const matchesBranch = selectedBranch === 'ALL' || normBranch === selectedBranch || normBranch.toUpperCase() === selectedBranch.toUpperCase();
-      const matchesYear = selectedYear === 'ALL' || s.year === selectedYear;
+      const matchesYear = selectedYear === 'ALL' || yr === selectedYear;
 
       return matchesQuery && matchesBranch && matchesYear;
     });
-  }, [students, searchQuery, selectedBranch, selectedYear]);
+  }, [validStudents, searchQuery, selectedBranch, selectedYear]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 animate-in fade-in duration-500 pb-10">

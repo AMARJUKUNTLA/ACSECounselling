@@ -123,7 +123,7 @@ const CounsellorStatsModal: React.FC<CounsellorStatsModalProps> = ({
               {counsellorName}
             </h2>
             <p className="text-xs font-bold text-slate-400 mt-0.5">
-              Department: <span className="text-slate-800">{counsellorUser?.department || 'Dept. of CSBS & IoT'}</span> | Assigned Counseling Portfolio Overview
+              Department: <span className="text-slate-800">{counsellorUser?.department || 'Department of CSBS & IoT'}</span> | Assigned Counseling Portfolio Overview
             </p>
           </div>
         </div>

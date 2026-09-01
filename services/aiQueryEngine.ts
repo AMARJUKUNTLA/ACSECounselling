@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Student, AppUser } from "../types";
-import { normalizeProgramBranch } from "./databaseService";
+import { normalizeProgramBranch, normalizeAcademicYear, isValidStudentRecord } from "./databaseService";
 
 export interface AgentMetric {
   label: string;
@@ -52,9 +52,14 @@ export const parseCgpaValue = (cgpaStr?: string): number | null => {
  */
 export const processLocalQuery = (
   rawQuery: string,
-  students: Student[],
+  rawStudents: Student[],
   currentUser: AppUser
 ): AgentQueryResult => {
+  const students = (rawStudents || []).filter(isValidStudentRecord).map(s => ({
+    ...s,
+    year: normalizeAcademicYear(s.year),
+    branch: normalizeProgramBranch(s.branch || '', s.regNo)
+  }));
   const query = rawQuery.trim().toLowerCase();
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const resultId = `msg-${Date.now()}`;
@@ -228,12 +233,12 @@ export const processLocalQuery = (
             color: (cgpa !== null && cgpa >= 8.0) ? 'indigo' : (cgpa !== null && cgpa < 6.0) ? 'red' : 'blue',
             subtext: (cgpa !== null && cgpa >= 8.0) ? '🌟 Distinction' : 'Academic Standing'
           },
-          { label: 'Year & Branch', value: `Yr ${st.year || '1'} • ${normalizeProgramBranch(st.branch)}`, color: 'purple' },
+          { label: 'Year & Branch', value: `Yr ${st.year || '2'} • ${normalizeProgramBranch(st.branch)}`, color: 'purple' },
           { label: 'Assigned Mentor', value: st.counsellor || 'Unassigned', color: 'emerald', subtext: 'Faculty Mentor' }
         ],
         suggestedFollowUps: [
           `Show all students under ${st.counsellor || 'this mentor'}`,
-          `Show students in Year ${st.year || '1'} ${normalizeProgramBranch(st.branch)}`,
+          `Show students in Year ${st.year || '2'} ${normalizeProgramBranch(st.branch)}`,
           'Show students with below 50% attendance'
         ]
       };
@@ -402,7 +407,7 @@ export const processLocalQuery = (
       filtered = filtered.filter(s => normalizeProgramBranch(s.branch).toLowerCase().includes('csbs'));
     }
 
-    const yearMatch = query.match(/year\s*([1-4])|([1-4])(?:st|nd|rd|th)?\s*year/i);
+    const yearMatch = query.match(/year\s*([2-4])|([2-4])(?:nd|rd|th)?\s*year/i);
     if (yearMatch) {
       const yr = yearMatch[1] || yearMatch[2];
       filtered = filtered.filter(s => s.year === yr);
@@ -452,7 +457,7 @@ export const processLocalQuery = (
   return {
     id: resultId,
     sender: 'agent',
-    text: `I am your **EduNexus Academic & Attendance Agent**. I can instantly filter students, lookup individual records, analyze attendance shortages (<50%), track R-grades, and examine mentor distributions.\n\nTry asking queries like:\n- *"Show students below 50% attendance"*\n- *"Particular student data for [Roll No / Name]"*\n- *"Students with R-Grades"*\n- *"Top performers with CGPA > 8.5"*`,
+    text: `I am **Counselling Geenie**, your academic & counseling AI assistant. I can instantly filter students, lookup individual records, analyze attendance shortages (<50%), track R-grades, and examine mentor distributions.\n\nTry asking queries like:\n- *"Show students below 50% attendance"*\n- *"Particular student data for [Roll No / Name]"*\n- *"Students with R-Grades"*\n- *"Top performers with CGPA > 8.5"*`,
     timestamp,
     intent: 'general_stats',
     metrics: [
@@ -516,7 +521,7 @@ export const queryAgent = async (
         counsellor: s.counsellor
       }));
 
-      const prompt = `You are the AI Academic & Attendance Assistant for EduNexus (Dept. of CSBS & IoT).
+      const prompt = `You are "Counselling Geenie", the AI Academic & Attendance Counseling Assistant for EduNexus (Department of CSBS & IoT).
 Total Students in Database: ${totalCount}.
 Critical Attendance (<50%): ${lowAttCount}.
 Students with R-Grades: ${rGradeCount}.

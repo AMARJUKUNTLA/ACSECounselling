@@ -176,7 +176,7 @@ const AdminAiChatbot: React.FC<AdminAiChatbotProps> = ({
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h3 className="font-black text-sm text-white tracking-tight">EduNexus AI Query Copilot</h3>
+              <h3 className="font-black text-sm text-white tracking-tight">Counselling Geenie 🧞✨</h3>
               <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider">
                 Admin Mode
               </span>
@@ -257,7 +257,7 @@ const AdminAiChatbot: React.FC<AdminAiChatbotProps> = ({
                     </span>
                   )}
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    {isUser ? 'You (Admin)' : 'EduNexus Agent'}
+                    {isUser ? 'You (Admin)' : 'Counselling Geenie'}
                   </span>
                   <span className="text-[10px] text-slate-300 font-bold">{msg.timestamp}</span>
                 </div>
@@ -319,7 +319,7 @@ const AdminAiChatbot: React.FC<AdminAiChatbotProps> = ({
                             {msg.highlightStudent.name}
                           </h4>
                           <p className="text-xs font-bold text-slate-500">
-                            SID / Reg No: <span className="font-mono text-indigo-600 font-extrabold">{msg.highlightStudent.regNo}</span> • {normalizeProgramBranch(msg.highlightStudent.branch)} (Year {msg.highlightStudent.year || '1'} • Sec {msg.highlightStudent.section || 'A'})
+                            SID / Reg No: <span className="font-mono text-indigo-600 font-extrabold">{msg.highlightStudent.regNo}</span> • {normalizeProgramBranch(msg.highlightStudent.branch)} (Year {msg.highlightStudent.year || '2'} • Sec {msg.highlightStudent.section || 'A'})
                           </p>
                         </div>
                         
@@ -509,7 +509,7 @@ const AdminAiChatbot: React.FC<AdminAiChatbotProps> = ({
                                     </td>
                                     <td className="py-2.5 px-3 font-medium text-slate-600">
                                       <span className="truncate max-w-[110px] block">
-                                        {normalizeProgramBranch(st.branch)} • Y{st.year || '1'}
+                                        {normalizeProgramBranch(st.branch)} • Y{st.year || '2'}
                                       </span>
                                     </td>
                                     <td className="py-2.5 px-3 font-black">
@@ -639,7 +639,7 @@ const AdminAiChatbot: React.FC<AdminAiChatbotProps> = ({
         </form>
         <div className="flex items-center justify-between mt-2 px-1 text-[10px] text-slate-400 font-medium">
           <span>Supported: "below 50% attendance", "tell me about student [name/regNo]", "counsellor stats", "R-grades"</span>
-          <span className="font-bold text-indigo-600">EduNexus Intelligence Engine</span>
+          <span className="font-bold text-indigo-600">Counselling Geenie 🧞</span>
         </div>
       </div>
     </div>

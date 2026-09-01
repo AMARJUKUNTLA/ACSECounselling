@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Student, AppUser } from '../types';
 import StudentCard from './StudentCard';
+import { isValidStudentRecord } from '../services/databaseService';
 
 interface RiskAnalysisDashboardProps {
   students: Student[];
@@ -29,9 +30,9 @@ const RiskAnalysisDashboard: React.FC<RiskAnalysisDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudentForCard, setSelectedStudentForCard] = useState<Student | null>(null);
 
-  // Compute Risk Metrics for all students
+  // Compute Risk Metrics for all valid students
   const analyzedStudents: RiskAnalysis[] = useMemo(() => {
-    return students.map(s => {
+    return (students || []).filter(isValidStudentRecord).map(s => {
       const attNum = parseFloat((s.attendance || '0').toString().replace('%', ''));
       const cgpaNum = parseFloat((s.cgpa || '0').toString());
       const rGradeStr = (s.rGrade || '').trim().toLowerCase();
@@ -175,7 +176,7 @@ const RiskAnalysisDashboard: React.FC<RiskAnalysisDashboardProps> = ({
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Class Size</span>
           <span className="text-2xl font-black text-slate-800">{stats.total}</span>
-          <span className="text-[10px] font-bold text-slate-400 block mt-0.5">Dept. of CSBS & IoT</span>
+          <span className="text-[10px] font-bold text-slate-400 block mt-0.5">Department of CSBS & IoT</span>
         </div>
 
         <div className="bg-red-50/80 p-5 rounded-3xl border border-red-100 shadow-sm">

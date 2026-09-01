@@ -1,6 +1,6 @@
 {
   "name": "EduNexus",
-  "description": "A high-performance student management platform for Dept. of CSBS & IoT, powered by Firebase Cloud sync and analytics.",
+  "description": "A high-performance student management platform for Department of CSBS & IoT, powered by Firebase Cloud sync and analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

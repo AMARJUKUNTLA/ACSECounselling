@@ -13,6 +13,8 @@ import {
   deleteUserFromFirebase,
   syncCounsellorAccountsFromStudents,
   normalizeProgramBranch,
+  normalizeAcademicYear,
+  isValidStudentRecord,
   getDepartmentForBranch
 } from '../services/databaseService';
 
@@ -80,7 +82,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     phone1: '',
     phone2: '',
     counsellor: '',
-    year: '1',
+    year: '2',
     section: 'A',
     branch: 'B.Tech CSBS',
     cgpa: '',
@@ -94,7 +96,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     email: '',
     role: 'faculty' as 'faculty' | 'admin',
-    department: 'Dept. of CSBS & IoT',
+    department: 'Department of CSBS & IoT',
     phone: '',
     password: 'faculty123'
   });
@@ -114,7 +116,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     departmentName: string;
     offeredCourses: string[];
   }>({
-    departmentName: 'Dept. of CSBS & IoT',
+    departmentName: 'Department of CSBS & IoT',
     offeredCourses: ['B.Tech CSBS', 'B.Tech CSE(IoT)']
   });
 
@@ -129,7 +131,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     const unsubscribeConfig = subscribeToConfig((cfg) => {
       setAppConfig({
-        departmentName: cfg.departmentName || 'Dept. of CSBS & IoT',
+        departmentName: cfg.departmentName || 'Department of CSBS & IoT',
         offeredCourses: cfg.offeredCourses && cfg.offeredCourses.length > 0 ? cfg.offeredCourses : ['B.Tech CSBS', 'B.Tech CSE(IoT)']
       });
     });
@@ -139,21 +141,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, []);
 
+  const validStudents = useMemo(() => {
+    return (students || []).filter(isValidStudentRecord);
+  }, [students]);
+
   const stats = useMemo(() => {
     const counsellors: Record<string, number> = {};
     const branches: Record<string, number> = {};
     const sectionsSet = new Set<string>();
 
-    const csbsYears: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 };
-    const iotYears: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 };
+    const csbsYears: Record<string, number> = { '2': 0, '3': 0, '4': 0 };
+    const iotYears: Record<string, number> = { '2': 0, '3': 0, '4': 0 };
     let csbsTotal = 0;
     let iotTotal = 0;
 
-    students.forEach(s => {
+    validStudents.forEach(s => {
       const c = s.counsellor || 'Unassigned';
-      const normBranch = normalizeProgramBranch(s.branch || '');
-      const yr = s.year && ['1', '2', '3', '4'].includes(s.year) ? s.year : '1';
-      const secKey = `${s.year}-${normBranch}-${s.section}`;
+      const normBranch = normalizeProgramBranch(s.branch || '', s.regNo);
+      const yr = normalizeAcademicYear(s.year);
+      const secKey = `${yr}-${normBranch}-${s.section || 'A'}`;
 
       counsellors[c] = (counsellors[c] || 0) + 1;
       branches[normBranch] = (branches[normBranch] || 0) + 1;
@@ -171,14 +177,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return { 
       counsellors, 
       branches, 
-      total: students.length, 
+      total: validStudents.length, 
       totalSections: sectionsSet.size,
       csbsYears,
       iotYears,
       csbsTotal,
       iotTotal
     };
-  }, [students]);
+  }, [validStudents]);
 
   useEffect(() => {
     if (!filterValue) {
@@ -193,7 +199,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [stats.counsellors, counsellorSearch]);
 
   const displayedStudents = useMemo(() => {
-    let list = students;
+    let list = validStudents;
     if (filterValue && filterValue !== 'ALL') {
       if (filterValue === 'low_attendance_50') {
         list = list.filter(s => {
@@ -228,7 +234,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // Fallback search across ALL students if specific mentor filter yielded 0 search results
       if (filtered.length === 0 && filterValue && filterValue !== 'ALL') {
-        return students.filter(s => 
+        return validStudents.filter(s => 
           s.name.toLowerCase().includes(q) || 
           s.regNo.toLowerCase().includes(q) ||
           (s.branch && s.branch.toLowerCase().includes(q)) ||
@@ -243,24 +249,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return filtered;
     }
     return list;
-  }, [students, filterValue, studentListSearch]);
+  }, [validStudents, filterValue, studentListSearch]);
 
   // Google-Style Search Engine Filter Logic
   const searchEngineResults = useMemo(() => {
     const q = engineQuery.toLowerCase().trim();
     const tStart = performance.now();
 
-    const results = students.filter(s => {
+    const results = validStudents.filter(s => {
       // Branch / Program filter
       if (engineBranchFilter !== 'ALL') {
-        const normB = normalizeProgramBranch(s.branch || '').toUpperCase();
+        const normB = normalizeProgramBranch(s.branch || '', s.regNo).toUpperCase();
         const filterB = normalizeProgramBranch(engineBranchFilter).toUpperCase();
         if (normB !== filterB && !normB.includes(filterB) && !filterB.includes(normB)) return false;
       }
 
       // Year filter
       if (engineYearFilter !== 'ALL') {
-        if (s.year !== engineYearFilter) return false;
+        const yr = normalizeAcademicYear(s.year);
+        if (yr !== engineYearFilter) return false;
       }
 
       if (!q) return true;
@@ -346,7 +353,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         alert("Student added to Firebase Cloud!");
         setShowAddModal(false);
       }
-      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
+      setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '2', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
     } catch (e) {
       alert("Failed to save student record.");
     } finally {
@@ -365,7 +372,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       await addUserToFirebase(userFormData);
       alert(`Successfully added ${userFormData.role === 'admin' ? 'Admin' : 'Faculty'} member: ${userFormData.name}`);
       setShowAddUserModal(false);
-      setUserFormData({ name: '', email: '', role: 'faculty', department: 'Computer Science', phone: '', password: 'faculty123' });
+      setUserFormData({ name: '', email: '', role: 'faculty', department: 'Department of CSBS & IoT', phone: '', password: 'faculty123' });
     } catch (e: any) {
       alert(`Failed to add user: ${e.message || 'Error occurred'}`);
     } finally {
@@ -379,7 +386,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: u.name || '',
       email: u.email || '',
       role: u.role || 'faculty',
-      department: u.department || 'Dept. of CSBS & IoT',
+      department: u.department || 'Department of CSBS & IoT',
       phone: u.phone || '',
       password: u.password || 'faculty123'
     });
@@ -438,7 +445,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         name: cName,
         email: `${sanitized}@edubase.edu`,
         role: 'faculty',
-        department: 'Dept. of CSBS & IoT',
+        department: 'Department of CSBS & IoT',
         phone: '',
         password: 'faculty123'
       };
@@ -537,7 +544,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             onClick={() => setAdminTab('students')}
             className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${adminTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
-            Student Directory ({students.length})
+            Student Directory ({validStudents.length})
           </button>
           <button 
             onClick={() => setAdminTab('risk')}
@@ -562,7 +569,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 ${adminTab === 'agent' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 bg-white/60'}`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>🤖 AI Query Agent</span>
+            <span>🧞 Counselling Geenie</span>
           </button>
         </div>
       </div>
@@ -605,7 +612,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button 
                 onClick={() => {
                   setEditingStudent(null);
-                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '1', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
+                  setFormData({ regNo: '', name: '', phone1: '', phone2: '', counsellor: '', year: '2', section: 'A', branch: 'B.Tech CSBS', cgpa: '', attendance: '', rGrade: '', iGrade: '' });
                   setShowAddModal(true);
                 }}
                 className="px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all shadow-md flex items-center space-x-2 active:scale-95"
@@ -623,8 +630,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-3xl font-black mt-1">{stats.total}</p>
              </div>
              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Departments</p>
-                <p className="text-3xl font-black text-slate-800 mt-1">{Object.keys(stats.branches).length}</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Department</p>
+                <p className="text-xl font-black text-slate-800 mt-1 truncate" title={appConfig.departmentName}>{appConfig.departmentName}</p>
              </div>
              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Mentors</p>
@@ -636,7 +643,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
              </div>
           </div>
 
-          {/* Academic Breakdown - Dept. of CSBS & IoT */}
+          {/* Academic Breakdown - Department of CSBS & IoT */}
           <div className="mb-8 bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
               <div>
@@ -674,8 +681,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-[9px] font-black uppercase text-slate-400">Enrolled</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2.5">
-                  {['1', '2', '3', '4'].map(y => (
+                <div className="grid grid-cols-3 gap-3">
+                  {['2', '3', '4'].map(y => (
                     <div key={`csbs-yr-${y}`} className="bg-white p-3 rounded-2xl text-center border border-indigo-100/80 shadow-2xs">
                       <p className="text-[10px] font-black text-indigo-400 uppercase">Year {y}</p>
                       <p className="text-base font-black text-slate-800 mt-0.5">{stats.csbsYears[y] || 0}</p>
@@ -697,8 +704,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-[9px] font-black uppercase text-slate-400">Enrolled</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2.5">
-                  {['1', '2', '3', '4'].map(y => (
+                <div className="grid grid-cols-3 gap-3">
+                  {['2', '3', '4'].map(y => (
                     <div key={`iot-yr-${y}`} className="bg-white p-3 rounded-2xl text-center border border-emerald-100/80 shadow-2xs">
                       <p className="text-[10px] font-black text-emerald-500 uppercase">Year {y}</p>
                       <p className="text-base font-black text-slate-800 mt-0.5">{stats.iotYears[y] || 0}</p>
@@ -751,7 +758,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="text-[9px] font-black text-slate-400 uppercase mt-0.5">Entire Directory</span>
                   </div>
                   <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${filterValue === 'ALL' || !filterValue ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    {students.length}
+                    {validStudents.length}
                   </span>
                 </div>
 
@@ -976,7 +983,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ))}
 
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 ml-3 mr-1">Year:</span>
-              {['ALL', '1', '2', '3', '4'].map(y => (
+              {['ALL', '2', '3', '4'].map(y => (
                 <button
                   key={y}
                   onClick={() => setEngineYearFilter(y)}
@@ -1009,7 +1016,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 mb-1">
                   <span className="text-emerald-600 font-extrabold">edunexus.edu</span>
                   <span>›</span>
-                  <span>{student.branch || 'CSBS & IoT'}</span>
+                  <span>{normalizeProgramBranch(student.branch || 'B.Tech CSBS')}</span>
                   <span>›</span>
                   <span className="text-slate-600 font-mono">{student.regNo}</span>
                 </div>
@@ -1024,7 +1031,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {student.name}
                     </h3>
                     <p className="text-xs font-bold text-slate-500 mt-0.5">
-                      Reg No: <span className="font-mono text-slate-800">{student.regNo}</span> | Section: <span className="text-slate-800">{student.section || 'A'}</span> | Year: <span className="text-slate-800">{student.year || '1'}</span>
+                      Reg No: <span className="font-mono text-slate-800">{student.regNo}</span> | Section: <span className="text-slate-800">{student.section || 'A'}</span> | Year: <span className="text-slate-800">{student.year || '2'}</span>
                     </p>
                   </div>
 
@@ -1100,7 +1107,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg mx-auto">
                       <span className="text-xs font-bold text-slate-400">Quick Try:</span>
-                      {['CSBS', 'IoT', 'Year 1', 'Section A'].map(s => (
+                      {['CSBS', 'IoT', 'Year 2', 'Section A'].map(s => (
                         <button
                           key={s}
                           onClick={() => setEngineQuery(s)}
@@ -1154,7 +1161,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               const isCounsellorAccount = u.id.includes('counsellor') || dept.includes('counsellor') || dept.includes('mentor');
 
               // Assigned Students Metrics for this Faculty Counsellor
-              const assignedList = students.filter(s => {
+              const assignedList = validStudents.filter(s => {
                 if (!s.counsellor) return false;
                 const sc = s.counsellor.trim().toLowerCase();
                 const un = u.name.trim().toLowerCase();
@@ -1220,7 +1227,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <h4 className="text-base font-black text-slate-800">{u.name}</h4>
                     <p className="text-xs font-bold text-slate-400 mt-0.5">{u.email}</p>
                     {u.phone && <p className="text-xs font-bold text-slate-500 mt-1">📞 {u.phone}</p>}
-                    <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1.5 rounded-xl inline-block">{u.department || 'Dept. of CSBS & IoT'}</p>
+                    <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1.5 rounded-xl inline-block">{u.department || 'Department of CSBS & IoT'}</p>
 
                     {/* Counseling Portfolio Summary Box */}
                     <div className="mt-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2">
@@ -1420,7 +1427,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="text"
                     value={userEditFormData.department}
                     onChange={e => setUserEditFormData({...userEditFormData, department: e.target.value})}
-                    placeholder="e.g. Dept. of CSBS & IoT"
+                    placeholder="e.g. Department of CSBS & IoT"
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 text-slate-900"
                   />
                 </div>
@@ -1594,7 +1601,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Offered Program (Dept. of CSBS & IoT)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Offered Program (Department of CSBS & IoT)</label>
                 <select 
                   value={formData.branch} 
                   onChange={e => setFormData({...formData, branch: e.target.value})}
@@ -1611,7 +1618,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="text" 
                   value={formData.year} 
                   onChange={e => setFormData({...formData, year: e.target.value})}
-                  placeholder="e.g. 1"
+                  placeholder="e.g. 2"
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
                 />
               </div>
@@ -1737,7 +1744,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
               </span>
-              <span className="text-xs font-black tracking-wide">Ask AI Agent</span>
+              <span className="text-xs font-black tracking-wide">Ask Counselling Geenie 🧞</span>
               <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider text-indigo-100 hidden sm:inline">
                 &lt;50% Att. &amp; Records
               </span>
